@@ -4,35 +4,49 @@ import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { Permission, Domain } from '@wuchan/contracts';
 import { moneySchema } from '@wuchan/validation';
-import { AuditService } from '../../audit/audit.module';
+import { AuditService, AuditModule } from '../../audit/audit.module';
+import { DatabaseService } from '../../database/database.service';
 
 @Controller('payments')
 @UseGuards(AuthGuard, PermissionsGuard)
 export class PaymentsController {
-  constructor(private auditService: AuditService) {}
+  constructor(
+    private auditService: AuditService,
+    private db: DatabaseService
+  ) {}
 
   @Get()
   @RequirePermissions(Permission.PAYMENT_READ)
-  list() {
-    return [{ id: 'pay_1', amountCents: 500000, currency: 'USD', status: 'COMPLETED' }];
+  async list() {
+    const res = await this.db.query('SELECT * FROM public.payments ORDER BY created_at DESC');
+    return res.rows;
   }
 
   @Post('process')
   @RequirePermissions(Permission.PAYMENT_PROCESS)
   async processPayment(@Body() body: any) {
     const validatedMoney = moneySchema.parse(body.amount);
-    const payment = {
-      id: `pay_${Date.now()}`,
-      amountCents: validatedMoney.amountCents,
-      currency: validatedMoney.currency,
-      status: 'PROCESSED'
-    };
+    const res = await this.db.query(
+      `INSERT INTO public.payments (invoice_id, organization_id, amount_cents, currency, payment_method, status)
+       VALUES ($1, $2, $3, $4, $5, 'COMPLETED')
+       RETURNING *`,
+      [
+        body.invoiceId,
+        body.organizationId,
+        validatedMoney.amountCents,
+        validatedMoney.currency,
+        body.paymentMethod || 'BANK_TRANSFER'
+      ]
+    );
+    const payment = res.rows[0];
+
     await this.auditService.logAction({
       domain: Domain.PAYMENTS,
       action: 'PAYMENT_PROCESSED',
       actorId: '00000000-0000-0000-0000-000000000001',
       afterState: payment
     });
+
     return payment;
   }
 }
@@ -40,80 +54,104 @@ export class PaymentsController {
 @Controller('invoicing')
 @UseGuards(AuthGuard, PermissionsGuard)
 export class InvoicingController {
+  constructor(private db: DatabaseService) {}
+
   @Get()
   @RequirePermissions(Permission.INVOICE_READ)
-  list() {
-    return [{ id: 'inv_1', amountCents: 500000, currency: 'USD' }];
+  async list() {
+    const res = await this.db.query('SELECT * FROM public.invoices ORDER BY created_at DESC');
+    return res.rows;
   }
 }
 
 @Controller('inventory')
 @UseGuards(AuthGuard, PermissionsGuard)
 export class InventoryController {
+  constructor(private db: DatabaseService) {}
+
   @Get()
   @RequirePermissions(Permission.INVENTORY_MANAGE)
-  list() {
-    return [{ id: 'inv_item_1', sku: 'STEEL-FRAME-01', qty: 100 }];
+  async list() {
+    const res = await this.db.query('SELECT * FROM public.inventory_items ORDER BY created_at DESC');
+    return res.rows;
   }
 }
 
 @Controller('production')
 @UseGuards(AuthGuard, PermissionsGuard)
 export class ProductionController {
+  constructor(private db: DatabaseService) {}
+
   @Get()
   @RequirePermissions(Permission.PRODUCTION_MANAGE)
-  list() {
-    return [{ id: 'prod_job_1', status: 'IN_PROGRESS' }];
+  async list() {
+    const res = await this.db.query('SELECT * FROM public.production_orders ORDER BY created_at DESC');
+    return res.rows;
   }
 }
 
 @Controller('quality')
 @UseGuards(AuthGuard, PermissionsGuard)
 export class QualityController {
+  constructor(private db: DatabaseService) {}
+
   @Get()
   @RequirePermissions(Permission.QUALITY_INSPECT)
-  list() {
-    return [{ id: 'qc_1', result: 'PASSED' }];
+  async list() {
+    const res = await this.db.query('SELECT * FROM public.qc_inspections ORDER BY created_at DESC');
+    return res.rows;
   }
 }
 
 @Controller('shipping')
 @UseGuards(AuthGuard, PermissionsGuard)
 export class ShippingController {
+  constructor(private db: DatabaseService) {}
+
   @Get()
   @RequirePermissions(Permission.SHIPPING_MANAGE)
-  list() {
-    return [{ id: 'ship_1', containerNo: 'CNTR-88219' }];
+  async list() {
+    const res = await this.db.query('SELECT * FROM public.shipments ORDER BY created_at DESC');
+    return res.rows;
   }
 }
 
 @Controller('documents')
 @UseGuards(AuthGuard, PermissionsGuard)
 export class DocumentsController {
+  constructor(private db: DatabaseService) {}
+
   @Get()
   @RequirePermissions(Permission.DOCUMENTS_MANAGE)
-  list() {
-    return [{ id: 'doc_1', title: 'Commercial Invoice' }];
+  async list() {
+    const res = await this.db.query('SELECT * FROM public.documents ORDER BY created_at DESC');
+    return res.rows;
   }
 }
 
 @Controller('messaging')
 @UseGuards(AuthGuard, PermissionsGuard)
 export class MessagingController {
+  constructor(private db: DatabaseService) {}
+
   @Get()
   @RequirePermissions(Permission.MESSAGING_SEND)
-  list() {
-    return [{ id: 'msg_1', content: 'Design drawing updated.' }];
+  async list() {
+    const res = await this.db.query('SELECT * FROM public.conversations ORDER BY created_at DESC');
+    return res.rows;
   }
 }
 
 @Controller('notifications')
 @UseGuards(AuthGuard, PermissionsGuard)
 export class NotificationsController {
+  constructor(private db: DatabaseService) {}
+
   @Get()
   @RequirePermissions(Permission.NOTIFICATIONS_READ)
-  list() {
-    return [{ id: 'notif_1', title: 'New RFQ received' }];
+  async list() {
+    const res = await this.db.query('SELECT * FROM public.notifications ORDER BY created_at DESC');
+    return res.rows;
   }
 }
 
@@ -136,6 +174,7 @@ export class AuthController {
 }
 
 @Module({
+  imports: [AuditModule],
   controllers: [
     PaymentsController,
     InvoicingController,

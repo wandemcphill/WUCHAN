@@ -1,4 +1,5 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import { Pool, QueryResult as PgQueryResult, QueryResultRow } from 'pg';
 
 export interface QueryResult<T = any> {
   rows: T[];
@@ -6,20 +7,42 @@ export interface QueryResult<T = any> {
 }
 
 @Injectable()
-export class DatabaseService implements OnModuleInit {
+export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DatabaseService.name);
+  private pool!: Pool;
 
-  async onModuleInit() {
-    this.logger.log('Database service initialized. Connected to PostgreSQL / Supabase schema.');
+  onModuleInit() {
+    const connectionString =
+      process.env.DATABASE_URL ||
+      'postgresql://postgres:postgres@localhost:5432/wuchan';
+
+    this.pool = new Pool({
+      connectionString,
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000
+    });
+
+    this.logger.log('DatabaseService initialized with PostgreSQL connection pool.');
   }
 
-  async query<T = any>(sql: string, params: any[] = []): Promise<QueryResult<T>> {
-    // Standard interface for executing SQL against PostgreSQL / Supabase
-    this.logger.debug(`Executing query: ${sql} with params: ${JSON.stringify(params)}`);
-    return {
-      rows: [],
-      rowCount: 0
-    };
+  async onModuleDestroy() {
+    if (this.pool) {
+      await this.pool.end();
+    }
+  }
+
+  async query<T extends QueryResultRow = any>(sql: string, params: any[] = []): Promise<QueryResult<T>> {
+    try {
+      const res: PgQueryResult<T> = await this.pool.query<T>(sql, params);
+      return {
+        rows: res.rows,
+        rowCount: res.rowCount || 0
+      };
+    } catch (error) {
+      this.logger.error(`Database query failed: ${sql}`, error instanceof Error ? error.stack : String(error));
+      throw error;
+    }
   }
 
   async insertOutboxEvent(event: {

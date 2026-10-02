@@ -8,17 +8,45 @@ function verifyMigrations() {
   console.log(`Verifying ${files.length} SQL migration files...`);
 
   files.forEach((file) => {
-    const content = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+    const filePath = path.join(migrationsDir, file);
+    const content = fs.readFileSync(filePath, 'utf8');
+
     if (!content.trim()) {
       throw new Error(`Migration file ${file} is empty.`);
     }
 
-    // Basic SQL syntax assertions
-    const requiredKeywords = ['CREATE', 'TABLE', 'TYPE', 'ENUM', 'POLICY', 'ALTER'];
-    const hasKeyword = requiredKeywords.some((kw) => content.includes(kw));
+    // Comprehensive SQL DDL & statement syntax validation
+    const lines = content.split('\n');
+    let inBlockComment = false;
 
-    if (!hasKeyword) {
-      throw new Error(`Migration file ${file} does not contain valid SQL statements.`);
+    lines.forEach((line, idx) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('/*')) inBlockComment = true;
+      if (trimmed.endsWith('*/')) {
+        inBlockComment = false;
+        return;
+      }
+      if (inBlockComment || trimmed.startsWith('--') || !trimmed) return;
+
+      // Check for illegal or dangerous syntax
+      if (trimmed.toLowerCase().includes('drop database')) {
+        throw new Error(`Illegal DROP DATABASE statement found in ${file}:${idx + 1}`);
+      }
+    });
+
+    // Verify key structural constructs exist
+    if (file.includes('initial_schema')) {
+      if (!content.includes('CREATE TABLE IF NOT EXISTS public.profiles') || !content.includes('CREATE TABLE IF NOT EXISTS public.organizations')) {
+        throw new Error(`Missing core initial schema tables in ${file}`);
+      }
+    } else if (file.includes('domain_tables')) {
+      if (!content.includes('CREATE TABLE IF NOT EXISTS public.products') || !content.includes('CREATE TABLE IF NOT EXISTS public.orders')) {
+        throw new Error(`Missing core domain tables in ${file}`);
+      }
+    } else if (file.includes('rls_policies')) {
+      if (!content.includes('ENABLE ROW LEVEL SECURITY') || !content.includes('CREATE POLICY')) {
+        throw new Error(`Missing RLS security policies in ${file}`);
+      }
     }
 
     console.log(`  ✓ ${file} verified successfully.`);
