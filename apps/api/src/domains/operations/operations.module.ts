@@ -1,4 +1,4 @@
-import { Module, Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Module, Controller, Get, Post, Body, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -24,15 +24,29 @@ export class PaymentsController {
 
   @Post('process')
   @RequirePermissions(Permission.PAYMENT_PROCESS)
-  async processPayment(@Body() body: any) {
+  async processPayment(@Req() req: any, @Body() body: any) {
     const validatedMoney = moneySchema.parse(body.amount);
+    const actorId = req.user.userId;
+
+    // Validate invoice ownership and currency match
+    const invoiceRes = await this.db.query('SELECT id, organization_id, amount_cents, currency FROM public.invoices WHERE id = $1', [body.invoiceId]);
+    const invoice = invoiceRes.rows[0];
+
+    if (!invoice) {
+      throw new Error('Invoice not found');
+    }
+
+    if (invoice.currency !== validatedMoney.currency) {
+      throw new Error(`Currency mismatch. Invoice is in ${invoice.currency}, payment attempt was in ${validatedMoney.currency}`);
+    }
+
     const res = await this.db.query(
       `INSERT INTO public.payments (invoice_id, organization_id, amount_cents, currency, payment_method, status)
        VALUES ($1, $2, $3, $4, $5, 'COMPLETED')
        RETURNING *`,
       [
-        body.invoiceId,
-        body.organizationId,
+        invoice.id,
+        invoice.organization_id,
         validatedMoney.amountCents,
         validatedMoney.currency,
         body.paymentMethod || 'BANK_TRANSFER'
@@ -43,7 +57,8 @@ export class PaymentsController {
     await this.auditService.logAction({
       domain: Domain.PAYMENTS,
       action: 'PAYMENT_PROCESSED',
-      actorId: '00000000-0000-0000-0000-000000000001',
+      actorId,
+      organizationId: invoice.organization_id,
       afterState: payment
     });
 
@@ -166,10 +181,14 @@ export class AiController {
 }
 
 @Controller('auth')
+@UseGuards(AuthGuard)
 export class AuthController {
   @Get('session')
-  getSession() {
-    return { authenticated: true, user: { email: 'dev@wuchan.com' } };
+  getSession(@Req() req: any) {
+    return {
+      authenticated: true,
+      user: req.user
+    };
   }
 }
 

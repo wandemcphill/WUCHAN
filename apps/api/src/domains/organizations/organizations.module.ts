@@ -1,4 +1,4 @@
-import { Module, Controller, Get, Post, Body, UseGuards, Param } from '@nestjs/common';
+import { Module, Controller, Get, Post, Body, UseGuards, Param, Req } from '@nestjs/common';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -17,39 +17,47 @@ export class OrganizationsController {
 
   @Get()
   @RequirePermissions(Permission.ORG_READ)
-  async list() {
+  async list(@Req() req: any) {
+    const userId = req.user.userId;
     const res = await this.db.query(
-      'SELECT id, name, slug, type, country_code, created_at FROM public.organizations ORDER BY name ASC'
+      'SELECT id, name, slug, type, country_code, created_at FROM public.organizations ORDER BY name ASC',
+      [],
+      userId
     );
     return res.rows;
   }
 
   @Get(':id')
   @RequirePermissions(Permission.ORG_READ)
-  async getById(@Param('id') id: string) {
+  async getById(@Req() req: any, @Param('id') id: string) {
+    const userId = req.user.userId;
     const res = await this.db.query(
       'SELECT id, name, slug, type, country_code, created_at FROM public.organizations WHERE id = $1',
-      [id]
+      [id],
+      userId
     );
     return res.rows[0] || null;
   }
 
   @Post()
   @RequirePermissions(Permission.ORG_MANAGE)
-  async create(@Body() body: any) {
+  async create(@Req() req: any, @Body() body: any) {
     const validated = createOrganizationSchema.parse(body);
+    const actorId = req.user.userId;
+
     const res = await this.db.query(
       `INSERT INTO public.organizations (name, slug, type, logo_url, country_code)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, name, slug, type, country_code, created_at`,
-      [validated.name, validated.slug, validated.type, validated.logoUrl || null, validated.countryCode]
+      [validated.name, validated.slug, validated.type, validated.logoUrl || null, validated.countryCode],
+      actorId
     );
     const org = res.rows[0];
 
     await this.auditService.logAction({
       domain: Domain.ORGANIZATIONS,
       action: 'ORGANIZATION_CREATED',
-      actorId: '00000000-0000-0000-0000-000000000001',
+      actorId,
       organizationId: org.id,
       afterState: org
     });

@@ -48,22 +48,25 @@ export class AuditService {
       afterState: params.afterState
     });
 
-    await this.db.insertAuditLog({
-      domain: validated.domain,
-      action: validated.action,
-      actorId: validated.actorId,
-      organizationId: validated.organizationId,
-      resourceId: validated.resourceId,
-      beforeState: validated.beforeState,
-      afterState: validated.afterState
-    });
+    // Write audit log and outbox event atomically in a single SQL transaction
+    await this.db.withTransaction(async (client) => {
+      await this.db.insertAuditLog({
+        domain: validated.domain,
+        action: validated.action,
+        actorId: validated.actorId,
+        organizationId: validated.organizationId,
+        resourceId: validated.resourceId,
+        beforeState: validated.beforeState,
+        afterState: validated.afterState
+      }, client);
 
-    await this.outboxService.publishEvent(
-      params.domain,
-      params.action,
-      params.actorId,
-      validated
-    );
+      await this.db.insertOutboxEvent({
+        domain: validated.domain,
+        action: validated.action,
+        actorId: validated.actorId,
+        payload: validated
+      }, client);
+    }, validated.actorId);
 
     return validated;
   }
@@ -72,10 +75,13 @@ export class AuditService {
 @Controller('audit')
 @UseGuards(AuthGuard, PermissionsGuard)
 export class AuditController {
+  constructor(private db: DatabaseService) {}
+
   @Get()
   @RequirePermissions(Permission.AUDIT_READ)
-  getAuditLogs() {
-    return [];
+  async getAuditLogs() {
+    const res = await this.db.query('SELECT * FROM public.audit_logs ORDER BY created_at DESC');
+    return res.rows;
   }
 }
 

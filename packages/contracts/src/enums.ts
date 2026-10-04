@@ -109,6 +109,35 @@ export enum OrderStatus {
   DISPUTED = 'DISPUTED'
 }
 
+/** Explicit Server-Controlled Order State Machine Allowed Transitions */
+const ALLOWED_ORDER_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+  [OrderStatus.DRAFT]: [OrderStatus.QUOTED, OrderStatus.CANCELLED],
+  [OrderStatus.QUOTED]: [OrderStatus.ACCEPTED, OrderStatus.CANCELLED, OrderStatus.ON_HOLD],
+  [OrderStatus.ACCEPTED]: [OrderStatus.CONTRACT_PENDING, OrderStatus.CANCELLED, OrderStatus.ON_HOLD],
+  [OrderStatus.CONTRACT_PENDING]: [OrderStatus.DEPOSIT_PENDING, OrderStatus.CANCELLED, OrderStatus.ON_HOLD],
+  [OrderStatus.DEPOSIT_PENDING]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED, OrderStatus.ON_HOLD],
+  [OrderStatus.CONFIRMED]: [OrderStatus.ENGINEERING, OrderStatus.CANCELLED, OrderStatus.ON_HOLD],
+  [OrderStatus.ENGINEERING]: [OrderStatus.PRODUCTION, OrderStatus.CANCELLED, OrderStatus.ON_HOLD],
+  [OrderStatus.PRODUCTION]: [OrderStatus.QC, OrderStatus.ON_HOLD, OrderStatus.DISPUTED],
+  [OrderStatus.QC]: [OrderStatus.READY_TO_SHIP, OrderStatus.PRODUCTION, OrderStatus.ON_HOLD, OrderStatus.DISPUTED],
+  [OrderStatus.READY_TO_SHIP]: [OrderStatus.SHIPPED, OrderStatus.ON_HOLD, OrderStatus.DISPUTED],
+  [OrderStatus.SHIPPED]: [OrderStatus.IN_TRANSIT, OrderStatus.DISPUTED],
+  [OrderStatus.IN_TRANSIT]: [OrderStatus.ARRIVED, OrderStatus.DISPUTED],
+  [OrderStatus.ARRIVED]: [OrderStatus.DELIVERED, OrderStatus.DISPUTED],
+  [OrderStatus.DELIVERED]: [OrderStatus.INSTALLATION, OrderStatus.COMPLETED, OrderStatus.DISPUTED],
+  [OrderStatus.INSTALLATION]: [OrderStatus.COMPLETED, OrderStatus.DISPUTED],
+  [OrderStatus.COMPLETED]: [],
+  [OrderStatus.ON_HOLD]: [OrderStatus.DRAFT, OrderStatus.QUOTED, OrderStatus.CONFIRMED, OrderStatus.ENGINEERING, OrderStatus.PRODUCTION, OrderStatus.CANCELLED],
+  [OrderStatus.CANCELLED]: [],
+  [OrderStatus.DISPUTED]: [OrderStatus.ON_HOLD, OrderStatus.CANCELLED, OrderStatus.PRODUCTION, OrderStatus.READY_TO_SHIP, OrderStatus.SHIPPED]
+};
+
+export function isValidOrderStatusTransition(currentStatus: OrderStatus, targetStatus: OrderStatus): boolean {
+  if (currentStatus === targetStatus) return true;
+  const allowed = ALLOWED_ORDER_TRANSITIONS[currentStatus] || [];
+  return allowed.includes(targetStatus);
+}
+
 export enum Currency {
   USD = 'USD',
   EUR = 'EUR',

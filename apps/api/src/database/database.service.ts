@@ -1,5 +1,5 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
-import { Pool, QueryResult as PgQueryResult, QueryResultRow } from 'pg';
+import { Pool, PoolClient, QueryResult as PgQueryResult, QueryResultRow } from 'pg';
 
 export interface QueryResult<T = any> {
   rows: T[];
@@ -32,9 +32,17 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async query<T extends QueryResultRow = any>(sql: string, params: any[] = []): Promise<QueryResult<T>> {
+  async query<T extends QueryResultRow = any>(
+    sql: string,
+    params: any[] = [],
+    userId?: string
+  ): Promise<QueryResult<T>> {
+    const client = await this.pool.connect();
     try {
-      const res: PgQueryResult<T> = await this.pool.query<T>(sql, params);
+      if (userId) {
+        await client.query("SELECT set_config('request.jwt.claim.sub', $1, true)", [userId]);
+      }
+      const res: PgQueryResult<T> = await client.query<T>(sql, params);
       return {
         rows: res.rows,
         rowCount: res.rowCount || 0
@@ -42,6 +50,30 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.error(`Database query failed: ${sql}`, error instanceof Error ? error.stack : String(error));
       throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async withTransaction<T>(
+    fn: (client: PoolClient) => Promise<T>,
+    userId?: string
+  ): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      if (userId) {
+        await client.query("SELECT set_config('request.jwt.claim.sub', $1, true)", [userId]);
+      }
+      const result = await fn(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      this.logger.error('Transaction rolled back due to error:', error instanceof Error ? error.stack : String(error));
+      throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -50,13 +82,17 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     action: string;
     actorId: string;
     payload: Record<string, any>;
-  }) {
+  }, client?: PoolClient) {
     const sql = `
       INSERT INTO public.outbox_events (domain, action, actor_id, payload, status)
       VALUES ($1, $2, $3, $4, 'PENDING')
       RETURNING *;
     `;
-    return this.query(sql, [event.domain, event.action, event.actorId, JSON.stringify(event.payload)]);
+    const params = [event.domain, event.action, event.actorId, JSON.stringify(event.payload)];
+    if (client) {
+      return client.query(sql, params);
+    }
+    return this.query(sql, params);
   }
 
   async insertAuditLog(log: {
@@ -67,13 +103,13 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     resourceId?: string;
     beforeState?: Record<string, any>;
     afterState?: Record<string, any>;
-  }) {
+  }, client?: PoolClient) {
     const sql = `
       INSERT INTO public.audit_logs (domain, action, actor_id, organization_id, resource_id, before_state, after_state)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *;
     `;
-    return this.query(sql, [
+    const params = [
       log.domain,
       log.action,
       log.actorId,
@@ -81,6 +117,10 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       log.resourceId || null,
       log.beforeState ? JSON.stringify(log.beforeState) : null,
       log.afterState ? JSON.stringify(log.afterState) : null
-    ]);
+    ];
+    if (client) {
+      return client.query(sql, params);
+    }
+    return this.query(sql, params);
   }
 }

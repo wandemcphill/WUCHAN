@@ -1,8 +1,8 @@
-import { Module, Controller, Get, Post, Body, UseGuards, Param, Patch } from '@nestjs/common';
+import { Module, Controller, Get, Post, Body, UseGuards, Param, Patch, Req, BadRequestException } from '@nestjs/common';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
-import { Permission, Domain } from '@wuchan/contracts';
+import { Permission, Domain, isValidOrderStatusTransition } from '@wuchan/contracts';
 import { createRfqSchema, createQuoteVersionSchema, updateOrderStatusSchema } from '@wuchan/validation';
 import { AuditService, AuditModule } from '../../audit/audit.module';
 import { DatabaseService } from '../../database/database.service';
@@ -24,8 +24,10 @@ export class RfqController {
 
   @Post()
   @RequirePermissions(Permission.RFQ_CREATE)
-  async create(@Body() body: any) {
+  async create(@Req() req: any, @Body() body: any) {
     const validated = createRfqSchema.parse(body);
+    const actorId = req.user.userId;
+
     const res = await this.db.query(
       `INSERT INTO public.rfqs (organization_id, title, description, budget_cents, currency, target_delivery_date)
        VALUES ($1, $2, $3, $4, $5, $6)
@@ -44,7 +46,7 @@ export class RfqController {
     await this.auditService.logAction({
       domain: Domain.RFQ,
       action: 'RFQ_CREATED',
-      actorId: '00000000-0000-0000-0000-000000000001',
+      actorId,
       organizationId: rfq.organization_id,
       afterState: rfq
     });
@@ -70,14 +72,16 @@ export class QuotesController {
 
   @Post()
   @RequirePermissions(Permission.QUOTE_CREATE)
-  async createVersion(@Body() body: any) {
+  async createVersion(@Req() req: any, @Body() body: any) {
     const validated = createQuoteVersionSchema.parse(body);
+    const actorId = req.user.userId;
+
     const res = await this.db.query(
       `INSERT INTO public.quote_versions (quote_id, version, subtotal_cents, tax_cents, shipping_cents, total_cents, currency, valid_until, notes)
        VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
       [
-        validated.rfqId,
+        validated.quoteId,
         validated.subtotal.amountCents,
         validated.tax.amountCents,
         validated.shipping.amountCents,
@@ -87,21 +91,23 @@ export class QuotesController {
         validated.notes || null
       ]
     );
-    const quote = res.rows[0];
+    const quoteVersion = res.rows[0];
 
     await this.auditService.logAction({
       domain: Domain.QUOTES,
       action: 'QUOTE_VERSION_CREATED',
-      actorId: '00000000-0000-0000-0000-000000000001',
-      afterState: quote
+      actorId,
+      afterState: quoteVersion
     });
 
-    return quote;
+    return quoteVersion;
   }
 
   @Post(':id/approve')
   @RequirePermissions(Permission.QUOTE_APPROVE)
-  async approve(@Param('id') id: string) {
+  async approve(@Req() req: any, @Param('id') id: string) {
+    const actorId = req.user.userId;
+
     const res = await this.db.query(
       `UPDATE public.quotes SET status = 'APPROVED', updated_at = NOW() WHERE id = $1 RETURNING *`,
       [id]
@@ -111,7 +117,7 @@ export class QuotesController {
     await this.auditService.logAction({
       domain: Domain.QUOTES,
       action: 'QUOTE_APPROVED',
-      actorId: '00000000-0000-0000-0000-000000000001',
+      actorId,
       resourceId: id,
       afterState: approved
     });
@@ -137,8 +143,19 @@ export class OrdersController {
 
   @Patch('status')
   @RequirePermissions(Permission.ORDER_STATE_UPDATE)
-  async updateStatus(@Body() body: any) {
+  async updateStatus(@Req() req: any, @Body() body: any) {
     const validated = updateOrderStatusSchema.parse(body);
+    const actorId = req.user.userId;
+
+    const currentOrderRes = await this.db.query('SELECT id, status FROM public.orders WHERE id = $1', [validated.orderId]);
+    const currentOrder = currentOrderRes.rows[0];
+
+    if (currentOrder) {
+      if (!isValidOrderStatusTransition(currentOrder.status, validated.status)) {
+        throw new BadRequestException(`Invalid order state transition from ${currentOrder.status} to ${validated.status}`);
+      }
+    }
+
     const res = await this.db.query(
       `UPDATE public.orders SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
       [validated.status, validated.orderId]
@@ -147,7 +164,7 @@ export class OrdersController {
     await this.auditService.logAction({
       domain: Domain.ORDERS,
       action: 'ORDER_STATUS_UPDATED',
-      actorId: '00000000-0000-0000-0000-000000000001',
+      actorId,
       resourceId: validated.orderId,
       afterState: res.rows[0] || validated
     });

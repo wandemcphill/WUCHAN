@@ -1,24 +1,81 @@
 import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import * as jwt from 'jsonwebtoken';
 import { UserContext, Permission, RoleName } from '@wuchan/contracts';
+import { DatabaseService } from '../../database/database.service';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+
+// Map RoleName to domain permissions
+const ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
+  [RoleName.PLATFORM_ADMIN]: Object.values(Permission),
+  [RoleName.ORG_OWNER]: Object.values(Permission),
+  [RoleName.ORG_ADMIN]: [
+    Permission.ORG_READ, Permission.ORG_MEMBERS_MANAGE,
+    Permission.CATALOG_READ, Permission.CATALOG_MANAGE,
+    Permission.RFQ_READ, Permission.RFQ_MANAGE,
+    Permission.QUOTE_READ, Permission.QUOTE_CREATE, Permission.QUOTE_APPROVE,
+    Permission.ORDER_READ, Permission.ORDER_MANAGE, Permission.ORDER_STATE_UPDATE,
+    Permission.PAYMENT_READ, Permission.INVOICE_READ, Permission.INVENTORY_MANAGE,
+    Permission.PRODUCTION_MANAGE, Permission.QUALITY_INSPECT, Permission.SHIPPING_MANAGE,
+    Permission.DOCUMENTS_MANAGE, Permission.MESSAGING_SEND, Permission.NOTIFICATIONS_READ, Permission.AUDIT_READ
+  ],
+  [RoleName.FACTORY_MANAGER]: [
+    Permission.CATALOG_READ, Permission.CATALOG_MANAGE, Permission.ORDER_READ, Permission.ORDER_STATE_UPDATE,
+    Permission.INVENTORY_MANAGE, Permission.PRODUCTION_MANAGE, Permission.QUALITY_INSPECT, Permission.SHIPPING_MANAGE,
+    Permission.DOCUMENTS_MANAGE, Permission.MESSAGING_SEND, Permission.NOTIFICATIONS_READ
+  ],
+  [RoleName.PRODUCTION_SUPERVISOR]: [
+    Permission.ORDER_READ, Permission.INVENTORY_MANAGE, Permission.PRODUCTION_MANAGE, Permission.QUALITY_INSPECT
+  ],
+  [RoleName.QUALITY_INSPECTOR]: [
+    Permission.ORDER_READ, Permission.QUALITY_INSPECT, Permission.DOCUMENTS_MANAGE
+  ],
+  [RoleName.CUSTOMER_BUYER]: [
+    Permission.CATALOG_READ, Permission.RFQ_CREATE, Permission.RFQ_READ, Permission.QUOTE_READ,
+    Permission.QUOTE_APPROVE, Permission.ORDER_READ, Permission.PAYMENT_READ, Permission.PAYMENT_PROCESS,
+    Permission.INVOICE_READ, Permission.DOCUMENTS_MANAGE, Permission.MESSAGING_SEND, Permission.NOTIFICATIONS_READ
+  ],
+  [RoleName.CUSTOMER_PROJECT_MANAGER]: [
+    Permission.CATALOG_READ, Permission.RFQ_READ, Permission.QUOTE_READ, Permission.ORDER_READ,
+    Permission.DOCUMENTS_MANAGE, Permission.MESSAGING_SEND, Permission.NOTIFICATIONS_READ
+  ],
+  [RoleName.MEMBER]: [
+    Permission.CATALOG_READ, Permission.RFQ_READ, Permission.QUOTE_READ, Permission.ORDER_READ, Permission.NOTIFICATIONS_READ
+  ]
+};
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean {
+  constructor(
+    private reflector: Reflector,
+    private db: DatabaseService
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass()
+    ]);
+
     const request = context.switchToHttp().getRequest();
     const authHeader = request.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      // Dev / Test fallback strictly prohibited in production environment
+      if (isPublic) {
+        request.user = null;
+        return true;
+      }
+      // Strictly gate mock/dev headers behind test/development NODE_ENV
       if (process.env.NODE_ENV === 'test' || (process.env.NODE_ENV === 'development' && process.env.ALLOW_DEV_AUTH === 'true')) {
-        const mockUser: UserContext = {
-          userId: (request.headers['x-user-id'] as string) || '00000000-0000-0000-0000-000000000001',
+        const userId = (request.headers['x-user-id'] as string) || '00000000-0000-0000-0000-000000000001';
+        const role = (request.headers['x-user-role'] as RoleName) || RoleName.ORG_OWNER;
+        request.user = {
+          userId,
           email: 'dev@wuchan.com',
           activeOrgId: (request.headers['x-org-id'] as string) || '11111111-1111-1111-1111-111111111111',
-          activeRole: (request.headers['x-user-role'] as RoleName) || RoleName.ORG_OWNER,
-          permissions: Object.values(Permission)
+          activeRole: role,
+          permissions: ROLE_PERMISSIONS[role] || Object.values(Permission)
         };
-        request.user = mockUser;
         return true;
       }
       throw new UnauthorizedException('Missing or invalid Authorization header');
@@ -29,7 +86,6 @@ export class AuthGuard implements CanActivate {
 
     if (!jwtSecret) {
       if (process.env.NODE_ENV === 'test') {
-        // Fallback for isolated test environments
         request.user = {
           userId: '00000000-0000-0000-0000-000000000001',
           email: 'test@wuchan.com',
@@ -39,22 +95,50 @@ export class AuthGuard implements CanActivate {
         };
         return true;
       }
-      throw new UnauthorizedException('JWT secret configuration is missing on server');
+      throw new UnauthorizedException('Server JWT secret configuration missing');
     }
 
     try {
-      const decoded = jwt.verify(token, jwtSecret) as any;
+      const decoded = jwt.verify(token, jwtSecret, {
+        issuer: process.env.SUPABASE_JWT_ISSUER || undefined,
+        audience: process.env.SUPABASE_JWT_AUDIENCE || 'authenticated'
+      }) as any;
+
+      const userId = decoded.sub;
+      const email = decoded.email || 'user@wuchan.com';
+
+      // Query server-side trusted membership table instead of user_metadata
+      const orgHeader = request.headers['x-org-id'] as string;
+      let memberQuery = 'SELECT organization_id, role FROM public.organization_members WHERE user_id = $1';
+      const params = [userId];
+
+      if (orgHeader) {
+        memberQuery += ' AND organization_id = $2';
+        params.push(orgHeader);
+      }
+
+      const memberRes = await this.db.query(memberQuery, params);
+      const membership = memberRes.rows[0];
+
+      const role: RoleName = membership ? (membership.role as RoleName) : RoleName.MEMBER;
+      const permissions = ROLE_PERMISSIONS[role] || [Permission.CATALOG_READ, Permission.ORG_READ];
+
       const userContext: UserContext = {
-        userId: decoded.sub,
-        email: decoded.email,
-        activeOrgId: decoded.user_metadata?.org_id || decoded.org_id,
-        activeRole: decoded.user_metadata?.role || decoded.role || RoleName.MEMBER,
-        permissions: decoded.permissions || [Permission.ORG_READ, Permission.CATALOG_READ]
+        userId,
+        email,
+        activeOrgId: membership ? membership.organization_id : undefined,
+        activeRole: role,
+        permissions
       };
+
       request.user = userContext;
       return true;
     } catch (err) {
-      throw new UnauthorizedException(`Invalid or expired JWT signature: ${err instanceof Error ? err.message : String(err)}`);
+      if (isPublic) {
+        request.user = null;
+        return true;
+      }
+      throw new UnauthorizedException(`JWT verification failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

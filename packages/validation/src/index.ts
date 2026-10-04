@@ -36,6 +36,7 @@ export const createProductSchema = z.object({
   name: z.string().min(2).max(150),
   sku: z.string().min(2).max(50),
   description: z.string().max(2000).optional(),
+  isPublic: z.boolean().optional().default(true),
   basePrice: moneySchema,
   leadTimeDays: z.number().int().positive()
 });
@@ -50,7 +51,7 @@ export const createRfqSchema = z.object({
 });
 
 export const createQuoteVersionSchema = z.object({
-  rfqId: z.string().uuid(),
+  quoteId: z.string().uuid('Valid quote ID required'),
   validUntil: z.string().datetime(),
   subtotal: moneySchema,
   tax: moneySchema,
