@@ -40,14 +40,25 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     const client = await this.pool.connect();
     try {
       if (userId) {
+        await client.query('BEGIN');
         await client.query("SELECT set_config('request.jwt.claim.sub', $1, true)", [userId]);
+        const res: PgQueryResult<T> = await client.query<T>(sql, params);
+        await client.query('COMMIT');
+        return {
+          rows: res.rows,
+          rowCount: res.rowCount || 0
+        };
+      } else {
+        const res: PgQueryResult<T> = await client.query<T>(sql, params);
+        return {
+          rows: res.rows,
+          rowCount: res.rowCount || 0
+        };
       }
-      const res: PgQueryResult<T> = await client.query<T>(sql, params);
-      return {
-        rows: res.rows,
-        rowCount: res.rowCount || 0
-      };
     } catch (error) {
+      if (userId) {
+        await client.query('ROLLBACK').catch(() => {});
+      }
       this.logger.error(`Database query failed: ${sql}`, error instanceof Error ? error.stack : String(error));
       throw error;
     } finally {

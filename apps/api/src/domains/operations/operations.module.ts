@@ -1,4 +1,4 @@
-import { Module, Controller, Get, Post, Body, UseGuards, Req } from '@nestjs/common';
+import { Module, Controller, Get, Post, Body, UseGuards, Req, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -17,8 +17,9 @@ export class PaymentsController {
 
   @Get()
   @RequirePermissions(Permission.PAYMENT_READ)
-  async list() {
-    const res = await this.db.query('SELECT * FROM public.payments ORDER BY created_at DESC');
+  async list(@Req() req: any) {
+    const userId = req.user.userId;
+    const res = await this.db.query('SELECT * FROM public.payments ORDER BY created_at DESC', [], userId);
     return res.rows;
   }
 
@@ -27,32 +28,89 @@ export class PaymentsController {
   async processPayment(@Req() req: any, @Body() body: any) {
     const validatedMoney = moneySchema.parse(body.amount);
     const actorId = req.user.userId;
+    const activeOrgId = req.user.activeOrgId;
 
-    // Validate invoice ownership and currency match
-    const invoiceRes = await this.db.query('SELECT id, organization_id, amount_cents, currency FROM public.invoices WHERE id = $1', [body.invoiceId]);
+    if (!body.invoiceId) {
+      throw new BadRequestException('invoiceId is required');
+    }
+
+    // 1. Fetch invoice and verify existence & tenant access
+    const invoiceRes = await this.db.query(
+      'SELECT id, organization_id, amount_cents, currency, status FROM public.invoices WHERE id = $1',
+      [body.invoiceId],
+      actorId
+    );
     const invoice = invoiceRes.rows[0];
 
     if (!invoice) {
-      throw new Error('Invoice not found');
+      throw new NotFoundException(`Invoice ${body.invoiceId} not found`);
     }
 
+    if (activeOrgId && invoice.organization_id !== activeOrgId) {
+      throw new ForbiddenException('Invoice belongs to a different organization');
+    }
+
+    // 2. Validate currency match
     if (invoice.currency !== validatedMoney.currency) {
-      throw new Error(`Currency mismatch. Invoice is in ${invoice.currency}, payment attempt was in ${validatedMoney.currency}`);
+      throw new BadRequestException(
+        `Currency mismatch: Invoice is in ${invoice.currency}, but payment attempted in ${validatedMoney.currency}`
+      );
     }
 
-    const res = await this.db.query(
-      `INSERT INTO public.payments (invoice_id, organization_id, amount_cents, currency, payment_method, status)
-       VALUES ($1, $2, $3, $4, $5, 'COMPLETED')
+    // 3. Idempotency check
+    if (body.idempotencyKey) {
+      const existingPayment = await this.db.query(
+        'SELECT * FROM public.payments WHERE idempotency_key = $1',
+        [body.idempotencyKey]
+      );
+      if (existingPayment.rows.length > 0) {
+        return existingPayment.rows[0];
+      }
+    }
+
+    // 4. Calculate previous completed payments and outstanding balance
+    const paidRes = await this.db.query(
+      "SELECT COALESCE(SUM(amount_cents), 0) AS total_paid FROM public.payments WHERE invoice_id = $1 AND status = 'COMPLETED'",
+      [invoice.id]
+    );
+    const totalPaidCents = parseInt(paidRes.rows[0].total_paid, 10);
+    const outstandingCents = invoice.amount_cents - totalPaidCents;
+
+    if (outstandingCents <= 0) {
+      throw new BadRequestException('Invoice is already fully paid');
+    }
+
+    if (validatedMoney.amountCents > outstandingCents) {
+      throw new BadRequestException(
+        `Payment amount (${validatedMoney.amountCents} cents) exceeds outstanding invoice balance (${outstandingCents} cents)`
+      );
+    }
+
+    // 5. Atomic insertion & audit log
+    const paymentRes = await this.db.query(
+      `INSERT INTO public.payments (invoice_id, organization_id, amount_cents, currency, payment_method, idempotency_key, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'COMPLETED')
        RETURNING *`,
       [
         invoice.id,
         invoice.organization_id,
         validatedMoney.amountCents,
         validatedMoney.currency,
-        body.paymentMethod || 'BANK_TRANSFER'
-      ]
+        body.paymentMethod || 'BANK_TRANSFER',
+        body.idempotencyKey || null
+      ],
+      actorId
     );
-    const payment = res.rows[0];
+    const payment = paymentRes.rows[0];
+
+    // Update invoice status if fully paid
+    if (totalPaidCents + validatedMoney.amountCents >= invoice.amount_cents) {
+      await this.db.query(
+        "UPDATE public.invoices SET status = 'PAID' WHERE id = $1",
+        [invoice.id],
+        actorId
+      );
+    }
 
     await this.auditService.logAction({
       domain: Domain.PAYMENTS,
@@ -73,8 +131,9 @@ export class InvoicingController {
 
   @Get()
   @RequirePermissions(Permission.INVOICE_READ)
-  async list() {
-    const res = await this.db.query('SELECT * FROM public.invoices ORDER BY created_at DESC');
+  async list(@Req() req: any) {
+    const userId = req.user.userId;
+    const res = await this.db.query('SELECT * FROM public.invoices ORDER BY created_at DESC', [], userId);
     return res.rows;
   }
 }
@@ -85,9 +144,10 @@ export class InventoryController {
   constructor(private db: DatabaseService) {}
 
   @Get()
-  @RequirePermissions(Permission.INVENTORY_MANAGE)
-  async list() {
-    const res = await this.db.query('SELECT * FROM public.inventory_items ORDER BY created_at DESC');
+  @RequirePermissions(Permission.INVENTORY_READ)
+  async list(@Req() req: any) {
+    const userId = req.user.userId;
+    const res = await this.db.query('SELECT * FROM public.inventory_items ORDER BY created_at DESC', [], userId);
     return res.rows;
   }
 }
@@ -98,9 +158,10 @@ export class ProductionController {
   constructor(private db: DatabaseService) {}
 
   @Get()
-  @RequirePermissions(Permission.PRODUCTION_MANAGE)
-  async list() {
-    const res = await this.db.query('SELECT * FROM public.production_orders ORDER BY created_at DESC');
+  @RequirePermissions(Permission.PRODUCTION_READ)
+  async list(@Req() req: any) {
+    const userId = req.user.userId;
+    const res = await this.db.query('SELECT * FROM public.production_orders ORDER BY created_at DESC', [], userId);
     return res.rows;
   }
 }
@@ -111,9 +172,10 @@ export class QualityController {
   constructor(private db: DatabaseService) {}
 
   @Get()
-  @RequirePermissions(Permission.QUALITY_INSPECT)
-  async list() {
-    const res = await this.db.query('SELECT * FROM public.qc_inspections ORDER BY created_at DESC');
+  @RequirePermissions(Permission.QUALITY_READ)
+  async list(@Req() req: any) {
+    const userId = req.user.userId;
+    const res = await this.db.query('SELECT * FROM public.qc_inspections ORDER BY created_at DESC', [], userId);
     return res.rows;
   }
 }
@@ -124,9 +186,10 @@ export class ShippingController {
   constructor(private db: DatabaseService) {}
 
   @Get()
-  @RequirePermissions(Permission.SHIPPING_MANAGE)
-  async list() {
-    const res = await this.db.query('SELECT * FROM public.shipments ORDER BY created_at DESC');
+  @RequirePermissions(Permission.SHIPPING_READ)
+  async list(@Req() req: any) {
+    const userId = req.user.userId;
+    const res = await this.db.query('SELECT * FROM public.shipments ORDER BY created_at DESC', [], userId);
     return res.rows;
   }
 }
@@ -137,9 +200,10 @@ export class DocumentsController {
   constructor(private db: DatabaseService) {}
 
   @Get()
-  @RequirePermissions(Permission.DOCUMENTS_MANAGE)
-  async list() {
-    const res = await this.db.query('SELECT * FROM public.documents ORDER BY created_at DESC');
+  @RequirePermissions(Permission.DOCUMENTS_READ)
+  async list(@Req() req: any) {
+    const userId = req.user.userId;
+    const res = await this.db.query('SELECT * FROM public.documents ORDER BY created_at DESC', [], userId);
     return res.rows;
   }
 }
@@ -150,9 +214,10 @@ export class MessagingController {
   constructor(private db: DatabaseService) {}
 
   @Get()
-  @RequirePermissions(Permission.MESSAGING_SEND)
-  async list() {
-    const res = await this.db.query('SELECT * FROM public.conversations ORDER BY created_at DESC');
+  @RequirePermissions(Permission.MESSAGING_READ)
+  async list(@Req() req: any) {
+    const userId = req.user.userId;
+    const res = await this.db.query('SELECT * FROM public.conversations ORDER BY created_at DESC', [], userId);
     return res.rows;
   }
 }
@@ -164,8 +229,9 @@ export class NotificationsController {
 
   @Get()
   @RequirePermissions(Permission.NOTIFICATIONS_READ)
-  async list() {
-    const res = await this.db.query('SELECT * FROM public.notifications ORDER BY created_at DESC');
+  async list(@Req() req: any) {
+    const userId = req.user.userId;
+    const res = await this.db.query('SELECT * FROM public.notifications ORDER BY created_at DESC', [], userId);
     return res.rows;
   }
 }

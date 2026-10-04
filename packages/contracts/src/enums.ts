@@ -70,15 +70,21 @@ export enum Permission {
   INVOICE_CREATE = 'invoicing:create',
 
   // Inventory & Production & Quality
+  INVENTORY_READ = 'inventory:read',
   INVENTORY_MANAGE = 'inventory:manage',
+  PRODUCTION_READ = 'production:read',
   PRODUCTION_MANAGE = 'production:manage',
+  QUALITY_READ = 'quality:read',
   QUALITY_INSPECT = 'quality:inspect',
 
   // Shipping & Documents
+  SHIPPING_READ = 'shipping:read',
   SHIPPING_MANAGE = 'shipping:manage',
+  DOCUMENTS_READ = 'documents:read',
   DOCUMENTS_MANAGE = 'documents:manage',
 
   // Messaging & Notifications & AI
+  MESSAGING_READ = 'messaging:read',
   MESSAGING_SEND = 'messaging:send',
   NOTIFICATIONS_READ = 'notifications:read',
   AI_EXECUTE = 'ai:execute',

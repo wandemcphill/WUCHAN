@@ -23,7 +23,6 @@ describe('Database Schema & RLS Policies Test Suite', () => {
     expect(sql).toContain('total_cents BIGINT NOT NULL CHECK (total_cents >= 0)');
     expect(sql).toContain('total_amount_cents BIGINT NOT NULL CHECK (total_amount_cents >= 0)');
     expect(sql).toContain('amount_cents BIGINT NOT NULL CHECK (amount_cents >= 0)');
-    // Ensures NO double precision or numeric/decimal float types used for money
     expect(sql).not.toContain('base_price DOUBLE');
   });
 
@@ -34,6 +33,6 @@ describe('Database Schema & RLS Policies Test Suite', () => {
     expect(sql).toContain('ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;');
     expect(sql).toContain('ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;');
     expect(sql).toContain('CREATE OR REPLACE FUNCTION public.is_org_member');
-    expect(sql).toContain('CREATE POLICY "Users can view organizations they belong to"');
+    expect(sql).toContain('CREATE POLICY "Organizations select" ON public.organizations FOR SELECT');
   });
 });

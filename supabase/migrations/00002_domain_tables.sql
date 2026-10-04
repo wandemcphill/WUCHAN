@@ -1,7 +1,7 @@
 -- 00002_domain_tables.sql
--- WUCHAN Domain Tables for Platform Foundation & First Commercial Slice
+-- WUCHAN Domain Tables for Platform Foundation & Canonical Domain Map
 
--- Order Status Enum
+-- Enums
 CREATE TYPE order_status AS ENUM (
   'DRAFT', 'QUOTED', 'ACCEPTED', 'CONTRACT_PENDING', 'DEPOSIT_PENDING',
   'CONFIRMED', 'ENGINEERING', 'PRODUCTION', 'QC', 'READY_TO_SHIP',
@@ -9,10 +9,50 @@ CREATE TYPE order_status AS ENUM (
   'COMPLETED', 'ON_HOLD', 'CANCELLED', 'DISPUTED'
 );
 
--- Currency Enum
 CREATE TYPE currency_code AS ENUM ('USD', 'EUR', 'CNY', 'GBP', 'AUD');
 
--- 1. Catalog Products, Options, Configurations, & BOM
+-- 1. Projects & Site Parcels
+CREATE TABLE IF NOT EXISTS public.projects (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  country_code CHAR(2) NOT NULL DEFAULT 'US',
+  address TEXT,
+  status VARCHAR(50) NOT NULL DEFAULT 'PLANNING',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.site_parcels (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  parcel_number VARCHAR(100),
+  soil_type VARCHAR(100),
+  foundation_ready BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 2. Merchant / Factory Operating Profiles
+CREATE TABLE IF NOT EXISTS public.merchant_profiles (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE UNIQUE,
+  business_license_no VARCHAR(100),
+  factory_area_sqm INT,
+  certification_tags TEXT[],
+  rating NUMERIC(3, 2) DEFAULT 5.0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.factory_capacities (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  monthly_unit_capacity INT NOT NULL DEFAULT 10,
+  current_backlog_units INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 3. Catalog Products, Options, Configurations, & BOM
 CREATE TABLE IF NOT EXISTS public.products (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
@@ -23,6 +63,8 @@ CREATE TABLE IF NOT EXISTS public.products (
   base_price_cents BIGINT NOT NULL CHECK (base_price_cents >= 0),
   currency currency_code NOT NULL DEFAULT 'USD',
   lead_time_days INT NOT NULL DEFAULT 30,
+  weight_kg NUMERIC(10, 2),
+  cbm NUMERIC(10, 3),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -31,7 +73,7 @@ CREATE TABLE IF NOT EXISTS public.product_options (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
-  option_type VARCHAR(100) NOT NULL, -- e.g. 'COLOR', 'INSULATION', 'FRAME_FINISH'
+  option_type VARCHAR(100) NOT NULL,
   price_delta_cents BIGINT NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -56,10 +98,11 @@ CREATE TABLE IF NOT EXISTS public.bill_of_materials (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 2. RFQ & Quotes
+-- 4. RFQ, Quotes, Contracts, & Change Requests
 CREATE TABLE IF NOT EXISTS public.rfqs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  project_id UUID REFERENCES public.projects(id),
   title VARCHAR(255) NOT NULL,
   description TEXT NOT NULL,
   target_delivery_date TIMESTAMPTZ,
@@ -95,11 +138,23 @@ CREATE TABLE IF NOT EXISTS public.quote_versions (
   UNIQUE(quote_id, version)
 );
 
--- 3. Orders & Changes
+CREATE TABLE IF NOT EXISTS public.contracts (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  quote_id UUID NOT NULL REFERENCES public.quotes(id) ON DELETE CASCADE,
+  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  contract_number VARCHAR(100) NOT NULL UNIQUE,
+  terms_text TEXT NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'PENDING_SIGNATURE',
+  signed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 5. Orders & Order Change Requests
 CREATE TABLE IF NOT EXISTS public.orders (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
   quote_id UUID REFERENCES public.quotes(id),
+  contract_id UUID REFERENCES public.contracts(id),
   status order_status NOT NULL DEFAULT 'DRAFT',
   total_amount_cents BIGINT NOT NULL CHECK (total_amount_cents >= 0),
   currency currency_code NOT NULL DEFAULT 'USD',
@@ -107,7 +162,18 @@ CREATE TABLE IF NOT EXISTS public.orders (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 4. Invoices & Payments
+CREATE TABLE IF NOT EXISTS public.order_change_requests (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
+  requested_by UUID NOT NULL REFERENCES public.profiles(id),
+  reason TEXT NOT NULL,
+  cost_impact_cents BIGINT NOT NULL DEFAULT 0,
+  schedule_impact_days INT NOT NULL DEFAULT 0,
+  status VARCHAR(50) NOT NULL DEFAULT 'PENDING_APPROVAL',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 6. Invoices & Payments
 CREATE TABLE IF NOT EXISTS public.invoices (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
@@ -127,11 +193,12 @@ CREATE TABLE IF NOT EXISTS public.payments (
   amount_cents BIGINT NOT NULL CHECK (amount_cents >= 0),
   currency currency_code NOT NULL DEFAULT 'USD',
   payment_method VARCHAR(100) NOT NULL,
+  idempotency_key VARCHAR(255) UNIQUE,
   status VARCHAR(50) NOT NULL DEFAULT 'COMPLETED',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 5. Inventory Items, Movements, & Reservations
+-- 7. Inventory Items, Movements, & Reservations
 CREATE TABLE IF NOT EXISTS public.inventory_items (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
@@ -145,7 +212,7 @@ CREATE TABLE IF NOT EXISTS public.inventory_movements (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   inventory_item_id UUID NOT NULL REFERENCES public.inventory_items(id) ON DELETE CASCADE,
   quantity_changed INT NOT NULL,
-  movement_type VARCHAR(50) NOT NULL, -- e.g. 'RECEIPT', 'DISPATCH', 'ADJUSTMENT'
+  movement_type VARCHAR(50) NOT NULL,
   reason TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -159,7 +226,7 @@ CREATE TABLE IF NOT EXISTS public.inventory_reservations (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 6. Production & Quality Inspections
+-- 8. Production & Quality Inspections
 CREATE TABLE IF NOT EXISTS public.production_orders (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
@@ -177,7 +244,7 @@ CREATE TABLE IF NOT EXISTS public.qc_inspections (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 7. International Logistics: Shipments -> Containers -> Packages
+-- 9. International Logistics & Tracking Events
 CREATE TABLE IF NOT EXISTS public.shipments (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
@@ -206,7 +273,16 @@ CREATE TABLE IF NOT EXISTS public.shipment_packages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 8. Documents & Document Versions
+CREATE TABLE IF NOT EXISTS public.shipment_tracking_events (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  shipment_id UUID NOT NULL REFERENCES public.shipments(id) ON DELETE CASCADE,
+  status VARCHAR(50) NOT NULL,
+  location VARCHAR(255),
+  description TEXT,
+  event_timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 10. Documents, Conversations, Support, & Warranty Claims
 CREATE TABLE IF NOT EXISTS public.documents (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
@@ -226,7 +302,6 @@ CREATE TABLE IF NOT EXISTS public.document_versions (
   UNIQUE(document_id, version)
 );
 
--- 9. Conversations, Participants, & Messages
 CREATE TABLE IF NOT EXISTS public.conversations (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
@@ -250,7 +325,25 @@ CREATE TABLE IF NOT EXISTS public.messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 10. Notifications
+CREATE TABLE IF NOT EXISTS public.support_cases (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  subject VARCHAR(255) NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'OPEN',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.warranty_claims (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
+  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  claim_number VARCHAR(100) NOT NULL UNIQUE,
+  issue_description TEXT NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'SUBMITTED',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 11. Notifications
 CREATE TABLE IF NOT EXISTS public.notifications (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -260,7 +353,7 @@ CREATE TABLE IF NOT EXISTS public.notifications (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 11. Transactional Outbox & Audit Logs
+-- 12. Transactional Outbox & Audit Logs
 CREATE TABLE IF NOT EXISTS public.outbox_events (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   domain VARCHAR(100) NOT NULL,
