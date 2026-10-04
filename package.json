@@ -1,0 +1,9 @@
+{
+  "name": "wuchan-monorepo",
+  "private": true,
+  "scripts": {
+    "test": "pnpm --filter @wuchan/contracts run test",
+    "build": "pnpm --filter @wuchan/contracts run build && pnpm --filter web run build",
+    "dev": "pnpm --filter web run dev"
+  }
+}
