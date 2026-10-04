@@ -1,5 +1,7 @@
+'use client';
+
 import React, { useState } from 'react';
-import { Truck, Box, FileCheck, AlertTriangle, Layers, Clock } from 'lucide-react';
+import { Box, FileCheck, Layers, Clock } from 'lucide-react';
 import { MerchantAdapter, Shipment } from '@wuchan/contracts';
 
 interface LogisticsDocumentsViewProps {
@@ -8,7 +10,6 @@ interface LogisticsDocumentsViewProps {
 
 export const LogisticsDocumentsView: React.FC<LogisticsDocumentsViewProps> = ({ adapter }) => {
   const shipments = adapter.getShipments();
-  const documents = adapter.getDocuments();
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(shipments[0] || null);
 
   return (
@@ -17,7 +18,7 @@ export const LogisticsDocumentsView: React.FC<LogisticsDocumentsViewProps> = ({ 
         <div>
           <h2 className="text-xl font-bold text-white tracking-tight">Logistics, Container Hierarchy & Export Documents</h2>
           <p className="text-xs text-slate-400 mt-1">
-            Structural Hierarchy: Order → Shipment → Shipping Container → Package/Unit Unit → Real-time Tracking Events.
+            Structural Hierarchy: Order → Shipment → Shipping Container → Package/Unit → Real-time Tracking Events.
           </p>
         </div>
       </div>

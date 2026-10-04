@@ -1,5 +1,23 @@
 // WUCHAN Shared Domain Contracts - Merchant / Factory Domain
 
+export interface Money {
+  /** Amount in integer minor units (e.g. cents for USD/EUR, yen for JPY) */
+  amount: number;
+  /** ISO 4217 three-letter currency code (e.g., 'USD', 'EUR') */
+  currency: string;
+}
+
+export function formatMoney(money?: Money): string {
+  if (!money) return '$0.00';
+  const val = money.amount / 100;
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: money.currency || 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(val);
+}
+
 export interface OrganizationProfile {
   id: string;
   name: string;
@@ -47,7 +65,7 @@ export interface Lead {
   phone: string;
   country: string;
   projectType: string;
-  budgetUSD: number;
+  budget: Money;
   status: 'NEW' | 'CONTACTED' | 'QUALIFIED' | 'RFQ_ISSUED' | 'UNQUALIFIED' | 'CONVERTED';
   source: string;
   createdAt: string;
@@ -63,7 +81,7 @@ export interface Customer {
   phone: string;
   country: string;
   totalOrders: number;
-  lifetimeValueUSD: number;
+  lifetimeValue: Money;
   creditTermDays: number;
   status: 'ACTIVE' | 'SUSPENDED' | 'INACTIVE';
   createdAt: string;
@@ -73,7 +91,7 @@ export interface RFQItem {
   productId?: string;
   productName: string;
   quantity: number;
-  targetPriceUSD?: number;
+  targetPrice?: Money;
   specifications: Record<string, string>;
 }
 
@@ -100,14 +118,14 @@ export interface QuoteVersion {
     productId: string;
     productName: string;
     quantity: number;
-    unitPriceUSD: number;
-    totalPriceUSD: number;
+    unitPrice: Money;
+    totalPrice: Money;
     customizations: Record<string, string>;
   }[];
-  subtotalUSD: number;
-  discountUSD: number;
-  shippingUSD: number;
-  totalAmountUSD: number;
+  subtotal: Money;
+  discount: Money;
+  shipping: Money;
+  totalAmount: Money;
   incoterm: string;
   paymentTerms: string;
   validUntil: string;
@@ -182,7 +200,7 @@ export interface BOMComponent {
   unit: string;
   category: string;
   leadTimeDays: number;
-  unitCostUSD: number;
+  unitCost: Money;
   subComponents?: BOMComponent[];
 }
 
@@ -191,14 +209,14 @@ export interface Product {
   sku: string;
   name: string;
   category: string;
-  basePriceUSD: number;
+  basePrice: Money;
   dimensionsMM: { length: number; width: number; height: number };
   weightKG: number;
   cbm: number;
   configurableOptions: {
     id: string;
     name: string;
-    options: { label: string; priceModifierUSD: number; skuSuffix: string }[];
+    options: { label: string; priceModifier: Money; skuSuffix: string }[];
   }[];
   bom: BOMComponent[];
   active: boolean;
@@ -249,7 +267,7 @@ export interface OrderChangeRequest {
   requestedBy: 'CUSTOMER' | 'MERCHANT' | 'ENGINEERING';
   reason: string;
   description: string;
-  commercialImpactUSD: number;
+  commercialImpact: Money;
   leadTimeImpactDays: number;
   status: 'PENDING_CUSTOMER_APPROVAL' | 'PENDING_MERCHANT_APPROVAL' | 'APPROVED' | 'REJECTED';
   createdAt: string;
@@ -261,8 +279,8 @@ export interface Order {
   quoteId: string;
   customerId: string;
   customerName: string;
-  totalAmountUSD: number;
-  paidAmountUSD: number;
+  totalAmount: Money;
+  paidAmount: Money;
   paymentStatus: 'AWAITING_PAYMENT' | 'PARTIALLY_PAID' | 'PAID_IN_FULL' | 'OVERDUE';
   status: 'CONFIRMED' | 'ENGINEERING' | 'PRODUCTION' | 'QC' | 'READY_TO_SHIP' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
   atRisk: boolean;
@@ -322,7 +340,7 @@ export interface DocumentRecord {
   documentNumber: string;
   title: string;
   category: 'COMMERCIAL_INVOICE' | 'PACKING_LIST' | 'BILL_OF_LADING' | 'CERTIFICATE_OF_ORIGIN' | 'QC_REPORT' | 'ENGINEERING_DRAWING';
-  relatedEntityId: string; // Order, Shipment, ProductionOrder
+  relatedEntityId: string;
   fileUrl: string;
   version: number;
   uploadedAt: string;
@@ -335,7 +353,7 @@ export interface Invoice {
   orderId: string;
   customerId: string;
   customerName: string;
-  amountUSD: number;
+  amount: Money;
   milestoneName: string;
   dueDate: string;
   status: 'DRAFT' | 'ISSUED' | 'PAID' | 'OVERDUE';
@@ -347,7 +365,7 @@ export interface PaymentRecord {
   invoiceId: string;
   orderId: string;
   paymentNumber: string;
-  amountUSD: number;
+  amount: Money;
   paymentMethod: 'WIRE_TRANSFER' | 'LETTER_OF_CREDIT' | 'CREDIT_CARD';
   referenceNumber: string;
   receivedAt: string;
@@ -405,9 +423,9 @@ export interface WarrantyClaim {
 export interface OperationalAnalytics {
   rfqConversionRate: number;
   averageQuoteTimeHours: number;
-  activeOrdersTotalUSD: number;
+  activeOrdersTotal: Money;
   onTimeInFullShippingRatePercent: number;
   qcPassRatePercent: number;
-  monthlyRevenueUSD: { month: string; amount: number }[];
+  monthlyRevenue: { month: string; amount: Money }[];
   productionStageCounts: Record<ProductionStage, number>;
 }

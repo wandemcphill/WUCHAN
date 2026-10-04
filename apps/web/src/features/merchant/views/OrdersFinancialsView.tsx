@@ -1,15 +1,16 @@
+'use client';
+
 import React, { useState } from 'react';
-import { ShoppingBag, FileDiff, DollarSign, AlertTriangle, Plus } from 'lucide-react';
-import { MerchantAdapter, Order } from '@wuchan/contracts';
+import { FileDiff, DollarSign, Plus } from 'lucide-react';
+import { MerchantAdapter, Order, formatMoney } from '@wuchan/contracts';
 
 interface OrdersFinancialsViewProps {
   adapter: MerchantAdapter;
 }
 
 export const OrdersFinancialsView: React.FC<OrdersFinancialsViewProps> = ({ adapter }) => {
-  const [orders, setOrders] = useState<Order[]>(adapter.getOrders());
+  const [orders] = useState<Order[]>(adapter.getOrders());
   const invoices = adapter.getInvoices();
-  const payments = adapter.getPayments();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(orders[0] || null);
 
   return (
@@ -50,7 +51,7 @@ export const OrdersFinancialsView: React.FC<OrdersFinancialsViewProps> = ({ adap
                   </span>
                 </div>
                 <p className="text-slate-400 text-[11px] mt-1">{ord.customerName}</p>
-                <p className="font-bold text-emerald-400 text-sm mt-1">${ord.totalAmountUSD.toLocaleString()}</p>
+                <p className="font-bold text-emerald-400 text-sm mt-1">{formatMoney(ord.totalAmount)}</p>
               </div>
             ))}
           </div>
@@ -66,8 +67,8 @@ export const OrdersFinancialsView: React.FC<OrdersFinancialsViewProps> = ({ adap
                   <p className="text-xs text-slate-400">Customer: {selectedOrder.customerName}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-lg font-black text-emerald-400">${selectedOrder.totalAmountUSD.toLocaleString()}</p>
-                  <p className="text-[11px] text-slate-400">Paid: ${selectedOrder.paidAmountUSD.toLocaleString()}</p>
+                  <p className="text-lg font-black text-emerald-400">{formatMoney(selectedOrder.totalAmount)}</p>
+                  <p className="text-[11px] text-slate-400">Paid: {formatMoney(selectedOrder.paidAmount)}</p>
                 </div>
               </div>
 
@@ -99,7 +100,7 @@ export const OrdersFinancialsView: React.FC<OrdersFinancialsViewProps> = ({ adap
                         <p className="text-slate-300">{cr.reason}</p>
                         <p className="text-[11px] text-slate-400">{cr.description}</p>
                         <div className="flex items-center gap-4 text-[11px] font-semibold pt-1">
-                          <span className="text-emerald-400">Cost Impact: +${cr.commercialImpactUSD.toLocaleString()}</span>
+                          <span className="text-emerald-400">Cost Impact: +{formatMoney(cr.commercialImpact)}</span>
                           <span className="text-amber-400">Schedule Impact: +{cr.leadTimeImpactDays} Days</span>
                         </div>
                       </div>
@@ -129,7 +130,7 @@ export const OrdersFinancialsView: React.FC<OrdersFinancialsViewProps> = ({ adap
                         <tr key={inv.id}>
                           <td className="p-2.5 font-bold text-white">{inv.invoiceNumber}</td>
                           <td className="p-2.5">{inv.milestoneName}</td>
-                          <td className="p-2.5 font-bold text-emerald-400">${inv.amountUSD.toLocaleString()}</td>
+                          <td className="p-2.5 font-bold text-emerald-400">{formatMoney(inv.amount)}</td>
                           <td className="p-2.5">{new Date(inv.dueDate).toLocaleDateString()}</td>
                           <td className="p-2.5">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${

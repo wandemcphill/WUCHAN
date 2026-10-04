@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 import { Building, Factory, Store, ShieldCheck, Save } from 'lucide-react';
 import { MerchantAdapter } from '@wuchan/contracts';

@@ -1,4 +1,7 @@
+'use client';
+
 import React from 'react';
+import Link from 'next/link';
 import {
   AlertTriangle,
   Clock,
@@ -15,10 +18,9 @@ import { MerchantAdapter } from '@wuchan/contracts';
 
 interface DashboardViewProps {
   adapter: MerchantAdapter;
-  onNavigate: (tab: any) => void;
 }
 
-export const DashboardView: React.FC<DashboardViewProps> = ({ adapter, onNavigate }) => {
+export const DashboardView: React.FC<DashboardViewProps> = ({ adapter }) => {
   const actions = adapter.getDashboardActionItems();
 
   const cards = [
@@ -28,7 +30,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ adapter, onNavigat
       color: 'border-amber-500/40 bg-amber-500/10 text-amber-400',
       icon: <Clock className="w-5 h-5" />,
       detail: `${actions.rfqsAwaitingResponse.length} customer RFQs require quotation within SLA`,
-      targetTab: 'rfq_quotes',
+      targetHref: '/merchant/quotes',
     },
     {
       title: 'Quotes Awaiting Decision',
@@ -36,7 +38,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ adapter, onNavigat
       color: 'border-blue-500/40 bg-blue-500/10 text-blue-400',
       icon: <FileText className="w-5 h-5" />,
       detail: `${actions.quotesAwaitingDecision.length} quotes sent, pending customer sign-off`,
-      targetTab: 'rfq_quotes',
+      targetHref: '/merchant/quotes',
     },
     {
       title: 'Orders Awaiting Payment',
@@ -44,7 +46,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ adapter, onNavigat
       color: 'border-purple-500/40 bg-purple-500/10 text-purple-400',
       icon: <DollarSign className="w-5 h-5" />,
       detail: `${actions.ordersAwaitingPayment.length} orders awaiting deposit/milestone payment`,
-      targetTab: 'orders_financials',
+      targetHref: '/merchant/orders',
     },
     {
       title: 'Orders At Risk',
@@ -52,7 +54,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ adapter, onNavigat
       color: 'border-red-500/40 bg-red-500/10 text-red-400',
       icon: <AlertTriangle className="w-5 h-5" />,
       detail: `${actions.ordersAtRisk.length} active orders experiencing critical delays or QC risks`,
-      targetTab: 'orders_financials',
+      targetHref: '/merchant/orders',
     },
     {
       title: 'Production Delays',
@@ -60,7 +62,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ adapter, onNavigat
       color: 'border-amber-500/40 bg-amber-500/10 text-amber-400',
       icon: <AlertCircle className="w-5 h-5" />,
       detail: `${actions.productionDelays.length} factory jobs behind schedule`,
-      targetTab: 'production_qc',
+      targetHref: '/merchant/production',
     },
     {
       title: 'QC Failures',
@@ -68,7 +70,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ adapter, onNavigat
       color: 'border-red-500/40 bg-red-500/10 text-red-400',
       icon: <ShieldAlert className="w-5 h-5" />,
       detail: `${actions.qcFailures.length} unresolved quality defects requiring action`,
-      targetTab: 'production_qc',
+      targetHref: '/merchant/production',
     },
     {
       title: 'Low Inventory Alert',
@@ -76,7 +78,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ adapter, onNavigat
       color: 'border-orange-500/40 bg-orange-500/10 text-orange-400',
       icon: <PackageX className="w-5 h-5" />,
       detail: `${actions.lowInventory.length} materials/components below minimum safety threshold`,
-      targetTab: 'inventory',
+      targetHref: '/merchant/inventory',
     },
     {
       title: 'Shipments Missing Docs',
@@ -84,7 +86,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ adapter, onNavigat
       color: 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400',
       icon: <Truck className="w-5 h-5" />,
       detail: `${actions.shipmentsMissingDocs.length} export containers missing required origin/customs docs`,
-      targetTab: 'logistics_docs',
+      targetHref: '/merchant/logistics',
     },
     {
       title: 'Customers Awaiting Response',
@@ -92,7 +94,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ adapter, onNavigat
       color: 'border-indigo-500/40 bg-indigo-500/10 text-indigo-400',
       icon: <MessageSquare className="w-5 h-5" />,
       detail: `${actions.customersAwaitingResponse.length} unread customer inquiries`,
-      targetTab: 'support_warranty',
+      targetHref: '/merchant/support',
     },
     {
       title: 'Overdue Invoices',
@@ -100,7 +102,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ adapter, onNavigat
       color: 'border-red-500/40 bg-red-500/10 text-red-400',
       icon: <DollarSign className="w-5 h-5" />,
       detail: `${actions.overdueInvoices.length} unpaid invoices past due date`,
-      targetTab: 'orders_financials',
+      targetHref: '/merchant/orders',
     },
   ];
 
@@ -123,10 +125,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ adapter, onNavigat
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {cards.map((card, index) => (
-          <div
+          <Link
             key={index}
-            className={`p-4 rounded-xl border flex flex-col justify-between transition-all hover:scale-[1.02] cursor-pointer ${card.color}`}
-            onClick={() => onNavigate(card.targetTab)}
+            href={card.targetHref}
+            className={`p-4 rounded-xl border flex flex-col justify-between transition-all hover:scale-[1.02] ${card.color}`}
           >
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -140,7 +142,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ adapter, onNavigat
               <span>View Tasks</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </div>
-          </div>
+          </Link>
         ))}
       </div>
 
@@ -157,12 +159,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ adapter, onNavigat
                   <p className="text-xs font-bold text-white">{order.orderNumber} — {order.customerName}</p>
                   <p className="text-[11px] text-red-400 mt-0.5">{order.riskReason}</p>
                 </div>
-                <button
-                  onClick={() => onNavigate('orders_financials')}
+                <Link
+                  href="/merchant/orders"
                   className="px-3 py-1 text-[11px] font-semibold rounded bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30"
                 >
                   Inspect Order
-                </button>
+                </Link>
               </div>
             ))}
           </div>
@@ -181,12 +183,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ adapter, onNavigat
                     {defect.defects?.[0]?.description || 'QC Inspection Failed'}
                   </p>
                 </div>
-                <button
-                  onClick={() => onNavigate('production_qc')}
+                <Link
+                  href="/merchant/production"
                   className="px-3 py-1 text-[11px] font-semibold rounded bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30"
                 >
                   Resolve QC
-                </button>
+                </Link>
               </div>
             ))}
           </div>

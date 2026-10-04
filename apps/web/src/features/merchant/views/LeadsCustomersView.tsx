@@ -1,6 +1,8 @@
+'use client';
+
 import React, { useState } from 'react';
-import { UserCheck, Search, Mail, Phone, Globe, Plus } from 'lucide-react';
-import { MerchantAdapter } from '@wuchan/contracts';
+import { UserCheck, Search, Globe, Plus } from 'lucide-react';
+import { MerchantAdapter, formatMoney } from '@wuchan/contracts';
 
 interface LeadsCustomersViewProps {
   adapter: MerchantAdapter;
@@ -75,7 +77,7 @@ export const LeadsCustomersView: React.FC<LeadsCustomersViewProps> = ({ adapter 
                     <td className="p-3 font-semibold text-white">{lead.customerName}</td>
                     <td className="p-3">{lead.companyName || 'N/A'}</td>
                     <td className="p-3">{lead.projectType}</td>
-                    <td className="p-3 font-medium text-emerald-400">${lead.budgetUSD.toLocaleString()}</td>
+                    <td className="p-3 font-medium text-emerald-400">{formatMoney(lead.budget)}</td>
                     <td className="p-3 flex items-center gap-1.5">
                       <Globe className="w-3.5 h-3.5 text-slate-500" /> {lead.country}
                     </td>
@@ -116,7 +118,7 @@ export const LeadsCustomersView: React.FC<LeadsCustomersViewProps> = ({ adapter 
                   </td>
                   <td className="p-3">{cust.companyName}</td>
                   <td className="p-3 font-bold text-slate-200">{cust.totalOrders}</td>
-                  <td className="p-3 font-bold text-emerald-400">${cust.lifetimeValueUSD.toLocaleString()}</td>
+                  <td className="p-3 font-bold text-emerald-400">{formatMoney(cust.lifetimeValue)}</td>
                   <td className="p-3">{cust.creditTermDays} Days Net</td>
                   <td className="p-3">
                     <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">

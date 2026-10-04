@@ -1,6 +1,8 @@
+'use client';
+
 import React from 'react';
-import { BarChart3, TrendingUp, CheckCircle, Clock, DollarSign, Truck } from 'lucide-react';
-import { MerchantAdapter } from '@wuchan/contracts';
+import { BarChart3, TrendingUp, CheckCircle, Clock, Truck } from 'lucide-react';
+import { MerchantAdapter, formatMoney } from '@wuchan/contracts';
 
 interface AnalyticsViewProps {
   adapter: MerchantAdapter;
@@ -62,14 +64,14 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ adapter }) => {
       {/* Revenue Trend Chart Representation */}
       <div className="p-5 rounded-xl border border-slate-800 bg-slate-900 space-y-4">
         <h3 className="text-sm font-bold text-white flex items-center gap-2">
-          <BarChart3 className="w-4 h-4 text-blue-400" /> Monthly Revenue Trend (USD)
+          <BarChart3 className="w-4 h-4 text-blue-400" /> Monthly Revenue Trend
         </h3>
         <div className="flex items-end justify-between h-48 pt-6 px-4 bg-slate-950 rounded-xl border border-slate-800">
-          {analytics.monthlyRevenueUSD.map((item, index) => {
-            const heightPercent = (item.amount / 800000) * 100;
+          {analytics.monthlyRevenue.map((item, index) => {
+            const heightPercent = (item.amount.amount / 80000000) * 100;
             return (
               <div key={index} className="flex flex-col items-center gap-2 flex-1">
-                <span className="text-[10px] font-bold text-emerald-400">${(item.amount / 1000).toFixed(0)}k</span>
+                <span className="text-[10px] font-bold text-emerald-400">{formatMoney(item.amount)}</span>
                 <div
                   className="w-12 bg-blue-600 rounded-t-lg transition-all hover:bg-blue-500"
                   style={{ height: `${heightPercent}%` }}

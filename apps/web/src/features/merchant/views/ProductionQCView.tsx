@@ -1,5 +1,7 @@
+'use client';
+
 import React, { useState } from 'react';
-import { Factory, ShieldAlert, CheckCircle, AlertTriangle, ArrowRight } from 'lucide-react';
+import { ShieldAlert, AlertTriangle, ArrowRight } from 'lucide-react';
 import { MerchantAdapter, ProductionStage, ProductionOrder } from '@wuchan/contracts';
 
 interface ProductionQCViewProps {

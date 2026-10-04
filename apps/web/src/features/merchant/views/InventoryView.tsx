@@ -1,5 +1,7 @@
+'use client';
+
 import React, { useState } from 'react';
-import { Warehouse, Lock, AlertOctagon, CheckCircle2 } from 'lucide-react';
+import { Warehouse, Lock } from 'lucide-react';
 import { MerchantAdapter, InventoryState, InventoryItem } from '@wuchan/contracts';
 
 interface InventoryViewProps {
@@ -7,7 +9,7 @@ interface InventoryViewProps {
 }
 
 export const InventoryView: React.FC<InventoryViewProps> = ({ adapter }) => {
-  const [items, setItems] = useState<InventoryItem[]>(adapter.getInventory());
+  const [items] = useState<InventoryItem[]>(adapter.getInventory());
   const warehouses = adapter.getWarehouses();
   const reservations = adapter.getReservations();
 

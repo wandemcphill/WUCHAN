@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 import { Bell, AlertTriangle, CheckCircle, Info, X } from 'lucide-react';
 import { SystemNotification } from '@wuchan/contracts';

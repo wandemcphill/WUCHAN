@@ -1,6 +1,8 @@
+'use client';
+
 import React, { useState } from 'react';
-import { FileText, Plus, GitCommit, CheckCircle2, Clock } from 'lucide-react';
-import { MerchantAdapter, Quote } from '@wuchan/contracts';
+import { FileText, Plus, GitCommit, Clock } from 'lucide-react';
+import { MerchantAdapter, Quote, formatMoney } from '@wuchan/contracts';
 
 interface RFQQuoteViewProps {
   adapter: MerchantAdapter;
@@ -12,20 +14,25 @@ export const RFQQuoteView: React.FC<RFQQuoteViewProps> = ({ adapter }) => {
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(quotes[0] || null);
   const [showVersionForm, setShowVersionForm] = useState(false);
   const [changeNote, setChangeNote] = useState('');
-  const [discountAmount, setDiscountAmount] = useState(15000);
+  const [discountAmount, setDiscountAmount] = useState(1500000); // $15,000.00 in cents
 
   const handleCreateNewVersion = () => {
     if (!selectedQuote) return;
     const latestVer = selectedQuote.versions[selectedQuote.versions.length - 1];
 
+    const newSubtotal = latestVer.subtotal;
+    const newDiscount = { amount: discountAmount, currency: 'USD' };
+    const newShipping = latestVer.shipping;
+    const newTotal = { amount: newSubtotal.amount - newDiscount.amount + newShipping.amount, currency: 'USD' };
+
     const updated = adapter.createQuoteVersion(selectedQuote.id, {
       createdBy: 'Sales Director - Sarah',
       changeLog: changeNote || 'Updated commercial revision snapshot.',
       items: latestVer.items,
-      subtotalUSD: latestVer.subtotalUSD,
-      discountUSD: discountAmount,
-      shippingUSD: latestVer.shippingUSD,
-      totalAmountUSD: latestVer.subtotalUSD - discountAmount + latestVer.shippingUSD,
+      subtotal: newSubtotal,
+      discount: newDiscount,
+      shipping: newShipping,
+      totalAmount: newTotal,
       incoterm: latestVer.incoterm,
       paymentTerms: latestVer.paymentTerms,
       validUntil: latestVer.validUntil,
@@ -100,14 +107,14 @@ export const RFQQuoteView: React.FC<RFQQuoteViewProps> = ({ adapter }) => {
                   <label className="block text-slate-400 mb-1">Revision Change Log Note</label>
                   <input
                     type="text"
-                    placeholder="e.g., Updated shipping freight cost and applied 5% trade discount..."
+                    placeholder="e.g., Updated shipping freight cost and applied trade discount..."
                     value={changeNote}
                     onChange={(e) => setChangeNote(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-800 rounded p-2 text-slate-200 focus:outline-none focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Adjust Discount (USD)</label>
+                  <label className="block text-slate-400 mb-1">Adjust Discount (Cents)</label>
                   <input
                     type="number"
                     value={discountAmount}
@@ -164,19 +171,19 @@ export const RFQQuoteView: React.FC<RFQQuoteViewProps> = ({ adapter }) => {
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 border-t border-slate-800/50">
                       <div>
                         <p className="text-[10px] text-slate-500 uppercase">Subtotal</p>
-                        <p className="font-semibold text-slate-200">${ver.subtotalUSD.toLocaleString()}</p>
+                        <p className="font-semibold text-slate-200">{formatMoney(ver.subtotal)}</p>
                       </div>
                       <div>
                         <p className="text-[10px] text-slate-500 uppercase">Discount</p>
-                        <p className="font-semibold text-emerald-400">-${ver.discountUSD.toLocaleString()}</p>
+                        <p className="font-semibold text-emerald-400">-{formatMoney(ver.discount)}</p>
                       </div>
                       <div>
                         <p className="text-[10px] text-slate-500 uppercase">Shipping Freight</p>
-                        <p className="font-semibold text-slate-200">${ver.shippingUSD.toLocaleString()}</p>
+                        <p className="font-semibold text-slate-200">{formatMoney(ver.shipping)}</p>
                       </div>
                       <div>
                         <p className="text-[10px] text-slate-500 uppercase">Total Amount</p>
-                        <p className="font-bold text-white text-sm">${ver.totalAmountUSD.toLocaleString()}</p>
+                        <p className="font-bold text-white text-sm">{formatMoney(ver.totalAmount)}</p>
                       </div>
                     </div>
 

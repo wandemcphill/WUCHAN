@@ -1,4 +1,8 @@
+'use client';
+
 import React from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Building2,
@@ -13,22 +17,7 @@ import {
   BarChart3,
 } from 'lucide-react';
 
-export type NavTab =
-  | 'dashboard'
-  | 'profiles'
-  | 'leads_customers'
-  | 'rfq_quotes'
-  | 'products_bom'
-  | 'inventory'
-  | 'production_qc'
-  | 'orders_financials'
-  | 'logistics_docs'
-  | 'support_warranty'
-  | 'analytics';
-
 interface SidebarProps {
-  currentTab: NavTab;
-  onSelectTab: (tab: NavTab) => void;
   actionCounts: {
     rfqs: number;
     ordersAtRisk: number;
@@ -38,23 +27,25 @@ interface SidebarProps {
   };
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, actionCounts }) => {
-  const navItems: { id: NavTab; label: string; icon: React.ReactNode; badge?: number }[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
-    { id: 'profiles', label: 'Org & Factory Profile', icon: <Building2 className="w-5 h-5" /> },
-    { id: 'leads_customers', label: 'Leads & Customers', icon: <Users className="w-5 h-5" /> },
-    { id: 'rfq_quotes', label: 'RFQs & Quotes', icon: <FileSpreadsheet className="w-5 h-5" />, badge: actionCounts.rfqs },
-    { id: 'products_bom', label: 'Products & BOM', icon: <Box className="w-5 h-5" /> },
-    { id: 'inventory', label: 'Inventory (10-State)', icon: <Warehouse className="w-5 h-5" />, badge: actionCounts.lowStock },
-    { id: 'production_qc', label: 'Production & QC', icon: <Factory className="w-5 h-5" />, badge: actionCounts.qcFailures },
-    { id: 'orders_financials', label: 'Orders & Financials', icon: <ShoppingBag className="w-5 h-5" />, badge: actionCounts.ordersAtRisk },
-    { id: 'logistics_docs', label: 'Logistics & Docs', icon: <Truck className="w-5 h-5" />, badge: actionCounts.missingDocs },
-    { id: 'support_warranty', label: 'Customer & Warranty', icon: <HelpCircle className="w-5 h-5" /> },
-    { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-5 h-5" /> },
+export const Sidebar: React.FC<SidebarProps> = ({ actionCounts }) => {
+  const pathname = usePathname();
+
+  const navItems = [
+    { href: '/merchant/dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
+    { href: '/merchant/profile', label: 'Org & Factory Profile', icon: <Building2 className="w-5 h-5" /> },
+    { href: '/merchant/leads', label: 'Leads & Customers', icon: <Users className="w-5 h-5" /> },
+    { href: '/merchant/quotes', label: 'RFQs & Quotes', icon: <FileSpreadsheet className="w-5 h-5" />, badge: actionCounts.rfqs },
+    { href: '/merchant/products', label: 'Products & BOM', icon: <Box className="w-5 h-5" /> },
+    { href: '/merchant/inventory', label: 'Inventory (10-State)', icon: <Warehouse className="w-5 h-5" />, badge: actionCounts.lowStock },
+    { href: '/merchant/production', label: 'Production & QC', icon: <Factory className="w-5 h-5" />, badge: actionCounts.qcFailures },
+    { href: '/merchant/orders', label: 'Orders & Financials', icon: <ShoppingBag className="w-5 h-5" />, badge: actionCounts.ordersAtRisk },
+    { href: '/merchant/logistics', label: 'Logistics & Docs', icon: <Truck className="w-5 h-5" />, badge: actionCounts.missingDocs },
+    { href: '/merchant/support', label: 'Customer & Warranty', icon: <HelpCircle className="w-5 h-5" /> },
+    { href: '/merchant/analytics', label: 'Analytics', icon: <BarChart3 className="w-5 h-5" /> },
   ];
 
   return (
-    <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col min-h-screen border-r border-slate-800">
+    <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col min-h-screen border-r border-slate-800 shrink-0">
       <div className="p-5 border-b border-slate-800 flex items-center gap-3">
         <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-lg">
           W
@@ -67,11 +58,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, actio
 
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
-          const isActive = currentTab === item.id;
+          const isActive = pathname === item.href;
           return (
-            <button
-              key={item.id}
-              onClick={() => onSelectTab(item.id)}
+            <Link
+              key={item.href}
+              href={item.href}
               className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 isActive
                   ? 'bg-blue-600 text-white shadow-sm'
@@ -89,7 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, actio
                   {item.badge}
                 </span>
               ) : null}
-            </button>
+            </Link>
           );
         })}
       </nav>

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MerchantAdapter } from './adapter.js';
+import { formatMoney } from './types.js';
 
 describe('MerchantAdapter Tests', () => {
   it('should initialize profiles correctly', () => {
@@ -24,7 +25,7 @@ describe('MerchantAdapter Tests', () => {
     expect(actions.overdueInvoices.length).toBeGreaterThan(0);
   });
 
-  it('should create a new quote version without overwriting existing versions', () => {
+  it('should create a new quote version with Money objects without overwriting existing versions', () => {
     const adapter = new MerchantAdapter();
     const quotes = adapter.getQuotes();
     const quote = quotes[0];
@@ -34,10 +35,10 @@ describe('MerchantAdapter Tests', () => {
       createdBy: 'Sales Manager - Dave',
       changeLog: 'Added engineering expedited surcharge.',
       items: quote.versions[0].items,
-      subtotalUSD: 300000,
-      discountUSD: 0,
-      shippingUSD: 20000,
-      totalAmountUSD: 320000,
+      subtotal: { amount: 30000000, currency: 'USD' },
+      discount: { amount: 0, currency: 'USD' },
+      shipping: { amount: 2000000, currency: 'USD' },
+      totalAmount: { amount: 32000000, currency: 'USD' },
       incoterm: 'DDP',
       paymentTerms: '50/50',
       validUntil: '2026-11-01T00:00:00Z',
@@ -46,7 +47,7 @@ describe('MerchantAdapter Tests', () => {
 
     expect(newQuote.versions.length).toBe(initialVersionCount + 1);
     expect(newQuote.currentVersionNumber).toBe(3);
-    expect(newQuote.versions[newQuote.versions.length - 1].version).toBe(3);
+    expect(formatMoney(newQuote.versions[newQuote.versions.length - 1].totalAmount)).toBe('$320,000.00');
   });
 
   it('should handle all 10 inventory states properly', () => {
@@ -87,7 +88,7 @@ describe('MerchantAdapter Tests', () => {
     expect(updatedItem?.quantities.available).toBe(prevAvailable - 50);
   });
 
-  it('should submit an order change request rather than making destructive edits', () => {
+  it('should submit an order change request using Money types', () => {
     const adapter = new MerchantAdapter();
     const orders = adapter.getOrders();
     const order = orders[0];
@@ -97,11 +98,12 @@ describe('MerchantAdapter Tests', () => {
       requestedBy: 'CUSTOMER',
       reason: 'Change cladding color to Matt Black',
       description: 'Customer sent written request for black anodized finish.',
-      commercialImpactUSD: 1200,
+      commercialImpact: { amount: 120000, currency: 'USD' },
       leadTimeImpactDays: 2,
     });
 
     expect(cr.status).toBe('PENDING_CUSTOMER_APPROVAL');
+    expect(formatMoney(cr.commercialImpact)).toBe('$1,200.00');
     const updatedOrder = adapter.getOrders().find(o => o.id === order.id);
     expect(updatedOrder?.changeRequests.length).toBeGreaterThan(0);
   });

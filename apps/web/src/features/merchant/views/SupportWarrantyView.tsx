@@ -1,3 +1,5 @@
+'use client';
+
 import React from 'react';
 import { MessageSquare, ShieldCheck, Send, User } from 'lucide-react';
 import { MerchantAdapter } from '@wuchan/contracts';

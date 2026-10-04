@@ -1,6 +1,8 @@
+'use client';
+
 import React, { useState } from 'react';
 import { Box, Layers, Settings, ChevronRight } from 'lucide-react';
-import { MerchantAdapter, Product } from '@wuchan/contracts';
+import { MerchantAdapter, Product, formatMoney } from '@wuchan/contracts';
 
 interface ProductBOMViewProps {
   adapter: MerchantAdapter;
@@ -44,7 +46,7 @@ export const ProductBOMView: React.FC<ProductBOMViewProps> = ({ adapter }) => {
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-slate-400 mt-2">
                   <span>SKU: {p.sku}</span>
-                  <span className="font-bold text-emerald-400">${p.basePriceUSD.toLocaleString()}</span>
+                  <span className="font-bold text-emerald-400">{formatMoney(p.basePrice)}</span>
                 </div>
               </div>
             ))}
@@ -60,7 +62,7 @@ export const ProductBOMView: React.FC<ProductBOMViewProps> = ({ adapter }) => {
                   <h3 className="text-base font-bold text-white">{selectedProd.name}</h3>
                   <p className="text-xs text-slate-400">SKU: {selectedProd.sku} — Category: {selectedProd.category}</p>
                 </div>
-                <span className="text-lg font-black text-emerald-400">${selectedProd.basePriceUSD.toLocaleString()} Base</span>
+                <span className="text-lg font-black text-emerald-400">{formatMoney(selectedProd.basePrice)} Base</span>
               </div>
 
               {/* Physical Profile */}
@@ -95,7 +97,7 @@ export const ProductBOMView: React.FC<ProductBOMViewProps> = ({ adapter }) => {
                           <div key={i} className="p-2 rounded bg-slate-900 border border-slate-800 flex items-center justify-between">
                             <span className="text-slate-300">{opt.label}</span>
                             <span className="font-semibold text-emerald-400">
-                              {opt.priceModifierUSD > 0 ? `+$${opt.priceModifierUSD.toLocaleString()}` : 'Included'}
+                              {opt.priceModifier.amount > 0 ? `+${formatMoney(opt.priceModifier)}` : 'Included'}
                             </span>
                           </div>
                         ))}
@@ -128,7 +130,7 @@ export const ProductBOMView: React.FC<ProductBOMViewProps> = ({ adapter }) => {
                           <td className="p-2.5 font-semibold text-white">{bom.componentName}</td>
                           <td className="p-2.5">{bom.quantityPerUnit} {bom.unit}</td>
                           <td className="p-2.5">{bom.leadTimeDays} Days</td>
-                          <td className="p-2.5 font-medium text-emerald-400">${bom.unitCostUSD.toLocaleString()}</td>
+                          <td className="p-2.5 font-medium text-emerald-400">{formatMoney(bom.unitCost)}</td>
                         </tr>
                       ))}
                     </tbody>
