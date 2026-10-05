@@ -268,7 +268,7 @@ function ProductDetailInner({ productId }: { productId: string }) {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                 <Link
-                  href={`/rfqs/new?productId=${product.id}&price=${totalPriceUsd}`}
+                  href={`/rfqs/new?productId=${product.id}&priceCents=${totalPriceUsd.amountCents}`}
                   className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/20 text-center transition flex items-center justify-center gap-1.5"
                 >
                   <FileCheck2 className="w-4 h-4" />
