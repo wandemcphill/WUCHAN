@@ -2,6 +2,10 @@ import { Currency, RoleName, Permission, OrderStatus, OrgType, Money } from './e
 
 export { Currency, RoleName, Permission, OrderStatus, OrgType, Money };
 
+import { Currency, RoleName, Permission, OrderStatus, OrgType, Money } from './enums.js';
+
+export { Currency, RoleName, Permission, OrderStatus, OrgType, Money };
+
 export type Language = 'en' | 'zh';
 
 /**
@@ -67,7 +71,7 @@ export interface OptionValue {
   id: string;
   name: { en: string; zh: string };
   description?: { en: string; zh: string };
-  priceDeltaUsd: number;
+  priceDeltaUsd: Money;
   weightDeltaKg: number;
   cbmDelta: number;
   leadTimeDeltaDays: number;
@@ -90,7 +94,7 @@ export interface BOMComponent {
   specifications: string;
   quantity: number;
   unit: string;
-  unitCostUsd: number;
+  unitCostUsd: Money;
 }
 
 export interface Product {
@@ -101,7 +105,7 @@ export interface Product {
   description: { en: string; zh: string };
   structureType: StructureType;
   primaryUsage: CategoryUsage[];
-  basePriceUsd: number;
+  basePriceUsd: Money;
   baseLeadTimeDays: number;
   images: string[];
   floorPlanImages: string[];
@@ -118,7 +122,7 @@ export interface SelectedOption {
   groupCode: string;
   valueId: string;
   valueName: { en: string; zh: string };
-  priceDeltaUsd: number;
+  priceDeltaUsd: Money;
   weightDeltaKg: number;
   cbmDelta: number;
   leadTimeDeltaDays: number;
@@ -130,7 +134,7 @@ export interface ProductConfiguration {
   productSku: string;
   productName: { en: string; zh: string };
   selectedOptions: SelectedOption[];
-  calculatedPriceUsd: number;
+  calculatedPriceUsd: Money;
   calculatedWeightKg: number;
   calculatedCbm: number;
   calculatedLeadTimeDays: number;
@@ -206,8 +210,8 @@ export interface QuoteLineItem {
   productName: { en: string; zh: string };
   configurationSnapshot: ProductConfiguration;
   quantity: number;
-  unitPriceUsd: number;
-  totalPriceUsd: number;
+  unitPriceUsd: Money;
+  totalPriceUsd: Money;
   leadTimeDays: number;
 }
 
@@ -216,11 +220,11 @@ export interface QuoteVersion {
   issuedAt: string;
   validUntil: string;
   lineItems: QuoteLineItem[];
-  subtotalUsd: number;
-  seaFreightEstimateUsd: number;
-  customsInsuranceEstimateUsd: number;
-  discountUsd: number;
-  totalUsd: number;
+  subtotalUsd: Money;
+  seaFreightEstimateUsd: Money;
+  customsInsuranceEstimateUsd: Money;
+  discountUsd: Money;
+  totalUsd: Money;
   incoterms: Incoterm;
   paymentTermsNote: string;
   validityDays: number;
@@ -269,7 +273,7 @@ export interface PaymentMilestone {
   id: string;
   stageName: string;
   percentage: number;
-  amountUsd: number;
+  amountUsd: Money;
   dueDate: string;
   status: 'PENDING' | 'RECEIPT_SUBMITTED' | 'VERIFIED_PAID' | 'OVERDUE';
   receiptUrl?: string;
@@ -285,7 +289,7 @@ export interface Invoice {
   orderNumber: string;
   milestoneId: string;
   stageTitle: string;
-  amountUsd: number;
+  amountUsd: Money;
   currency: Currency;
   convertedAmount: number;
   issuedDate: string;
