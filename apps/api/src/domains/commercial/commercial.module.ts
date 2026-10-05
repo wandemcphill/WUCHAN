@@ -17,8 +17,9 @@ export class RfqController {
 
   @Get()
   @RequirePermissions(Permission.RFQ_READ)
-  async list() {
-    const res = await this.db.query('SELECT * FROM public.rfqs ORDER BY created_at DESC');
+  async list(@Req() req: any) {
+    const userId = req.user.userId;
+    const res = await this.db.query('SELECT * FROM public.rfqs ORDER BY created_at DESC', [], userId);
     return res.rows;
   }
 
@@ -39,7 +40,8 @@ export class RfqController {
         validated.budget?.amountCents || null,
         validated.budget?.currency || 'USD',
         validated.targetDeliveryDate || null
-      ]
+      ],
+      actorId
     );
     const rfq = res.rows[0];
 
@@ -65,8 +67,9 @@ export class QuotesController {
 
   @Get()
   @RequirePermissions(Permission.QUOTE_READ)
-  async list() {
-    const res = await this.db.query('SELECT * FROM public.quotes ORDER BY created_at DESC');
+  async list(@Req() req: any) {
+    const userId = req.user.userId;
+    const res = await this.db.query('SELECT * FROM public.quotes ORDER BY created_at DESC', [], userId);
     return res.rows;
   }
 
@@ -76,31 +79,56 @@ export class QuotesController {
     const validated = createQuoteVersionSchema.parse(body);
     const actorId = req.user.userId;
 
-    const res = await this.db.query(
-      `INSERT INTO public.quote_versions (quote_id, version, subtotal_cents, tax_cents, shipping_cents, total_cents, currency, valid_until, notes)
-       VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING *`,
-      [
-        validated.quoteId,
-        validated.subtotal.amountCents,
-        validated.tax.amountCents,
-        validated.shipping.amountCents,
-        validated.total.amountCents,
-        validated.total.currency,
-        validated.validUntil,
-        validated.notes || null
-      ]
-    );
-    const quoteVersion = res.rows[0];
+    return this.db.withTransaction(async (client) => {
+      // 1. Resolve or create parent quote record
+      const quoteRes = await client.query('SELECT id, current_version, organization_id FROM public.quotes WHERE id = $1', [validated.quoteId]);
+      let quote = quoteRes.rows[0];
 
-    await this.auditService.logAction({
-      domain: Domain.QUOTES,
-      action: 'QUOTE_VERSION_CREATED',
-      actorId,
-      afterState: quoteVersion
-    });
+      if (!quote) {
+        const newQuoteRes = await client.query(
+          `INSERT INTO public.quotes (id, rfq_id, organization_id, current_version, status)
+           VALUES ($1, $1, $2, 1, 'DRAFT')
+           RETURNING id, current_version, organization_id`,
+          [validated.quoteId, req.user.activeOrgId || '11111111-1111-1111-1111-111111111111']
+        );
+        quote = newQuoteRes.rows[0];
+      } else {
+        await client.query(
+          'UPDATE public.quotes SET current_version = current_version + 1, updated_at = NOW() WHERE id = $1',
+          [quote.id]
+        );
+      }
 
-    return quoteVersion;
+      // 2. Insert quote version
+      const nextVersion = (quote.current_version || 0) + 1;
+      const res = await client.query(
+        `INSERT INTO public.quote_versions (quote_id, version, subtotal_cents, tax_cents, shipping_cents, total_cents, currency, valid_until, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING *`,
+        [
+          quote.id,
+          nextVersion,
+          validated.subtotal.amountCents,
+          validated.tax.amountCents,
+          validated.shipping.amountCents,
+          validated.total.amountCents,
+          validated.total.currency,
+          validated.validUntil,
+          validated.notes || null
+        ]
+      );
+      const quoteVersion = res.rows[0];
+
+      await this.auditService.logAction({
+        domain: Domain.QUOTES,
+        action: 'QUOTE_VERSION_CREATED',
+        actorId,
+        organizationId: quote.organization_id,
+        afterState: quoteVersion
+      });
+
+      return quoteVersion;
+    }, actorId);
   }
 
   @Post(':id/approve')
@@ -110,7 +138,8 @@ export class QuotesController {
 
     const res = await this.db.query(
       `UPDATE public.quotes SET status = 'APPROVED', updated_at = NOW() WHERE id = $1 RETURNING *`,
-      [id]
+      [id],
+      actorId
     );
     const approved = res.rows[0] || { id, status: 'APPROVED' };
 
@@ -136,8 +165,9 @@ export class OrdersController {
 
   @Get()
   @RequirePermissions(Permission.ORDER_READ)
-  async list() {
-    const res = await this.db.query('SELECT * FROM public.orders ORDER BY created_at DESC');
+  async list(@Req() req: any) {
+    const userId = req.user.userId;
+    const res = await this.db.query('SELECT * FROM public.orders ORDER BY created_at DESC', [], userId);
     return res.rows;
   }
 
@@ -147,7 +177,7 @@ export class OrdersController {
     const validated = updateOrderStatusSchema.parse(body);
     const actorId = req.user.userId;
 
-    const currentOrderRes = await this.db.query('SELECT id, status FROM public.orders WHERE id = $1', [validated.orderId]);
+    const currentOrderRes = await this.db.query('SELECT id, status FROM public.orders WHERE id = $1', [validated.orderId], actorId);
     const currentOrder = currentOrderRes.rows[0];
 
     if (currentOrder) {
@@ -158,7 +188,8 @@ export class OrdersController {
 
     const res = await this.db.query(
       `UPDATE public.orders SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-      [validated.status, validated.orderId]
+      [validated.status, validated.orderId],
+      actorId
     );
 
     await this.auditService.logAction({

@@ -34,93 +34,94 @@ export class PaymentsController {
       throw new BadRequestException('invoiceId is required');
     }
 
-    // 1. Fetch invoice and verify existence & tenant access
-    const invoiceRes = await this.db.query(
-      'SELECT id, organization_id, amount_cents, currency, status FROM public.invoices WHERE id = $1',
-      [body.invoiceId],
-      actorId
-    );
-    const invoice = invoiceRes.rows[0];
-
-    if (!invoice) {
-      throw new NotFoundException(`Invoice ${body.invoiceId} not found`);
-    }
-
-    if (activeOrgId && invoice.organization_id !== activeOrgId) {
-      throw new ForbiddenException('Invoice belongs to a different organization');
-    }
-
-    // 2. Validate currency match
-    if (invoice.currency !== validatedMoney.currency) {
-      throw new BadRequestException(
-        `Currency mismatch: Invoice is in ${invoice.currency}, but payment attempted in ${validatedMoney.currency}`
+    return this.db.withTransaction(async (client) => {
+      // 1. Fetch invoice and verify tenant access
+      const invoiceRes = await client.query(
+        'SELECT id, organization_id, amount_cents, currency, status FROM public.invoices WHERE id = $1',
+        [body.invoiceId]
       );
-    }
+      const invoice = invoiceRes.rows[0];
 
-    // 3. Idempotency check
-    if (body.idempotencyKey) {
-      const existingPayment = await this.db.query(
-        'SELECT * FROM public.payments WHERE idempotency_key = $1',
-        [body.idempotencyKey]
-      );
-      if (existingPayment.rows.length > 0) {
-        return existingPayment.rows[0];
+      if (!invoice) {
+        throw new NotFoundException(`Invoice ${body.invoiceId} not found`);
       }
-    }
 
-    // 4. Calculate previous completed payments and outstanding balance
-    const paidRes = await this.db.query(
-      "SELECT COALESCE(SUM(amount_cents), 0) AS total_paid FROM public.payments WHERE invoice_id = $1 AND status = 'COMPLETED'",
-      [invoice.id]
-    );
-    const totalPaidCents = parseInt(paidRes.rows[0].total_paid, 10);
-    const outstandingCents = invoice.amount_cents - totalPaidCents;
+      if (activeOrgId && invoice.organization_id !== activeOrgId) {
+        throw new ForbiddenException('Invoice belongs to a different organization');
+      }
 
-    if (outstandingCents <= 0) {
-      throw new BadRequestException('Invoice is already fully paid');
-    }
+      // 2. Validate currency match
+      if (invoice.currency !== validatedMoney.currency) {
+        throw new BadRequestException(
+          `Currency mismatch: Invoice is in ${invoice.currency}, but payment attempted in ${validatedMoney.currency}`
+        );
+      }
 
-    if (validatedMoney.amountCents > outstandingCents) {
-      throw new BadRequestException(
-        `Payment amount (${validatedMoney.amountCents} cents) exceeds outstanding invoice balance (${outstandingCents} cents)`
+      // 3. Idempotency check
+      if (body.idempotencyKey) {
+        const existingPayment = await client.query(
+          'SELECT * FROM public.payments WHERE idempotency_key = $1',
+          [body.idempotencyKey]
+        );
+        if (existingPayment.rows.length > 0) {
+          return existingPayment.rows[0];
+        }
+      }
+
+      // 4. Calculate previous payments and outstanding balance
+      const paidRes = await client.query(
+        "SELECT COALESCE(SUM(amount_cents), 0) AS total_paid FROM public.payments WHERE invoice_id = $1 AND status = 'COMPLETED'",
+        [invoice.id]
       );
-    }
+      const totalPaidCents = parseInt(paidRes.rows[0].total_paid, 10);
+      const outstandingCents = invoice.amount_cents - totalPaidCents;
 
-    // 5. Atomic insertion & audit log
-    const paymentRes = await this.db.query(
-      `INSERT INTO public.payments (invoice_id, organization_id, amount_cents, currency, payment_method, idempotency_key, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'COMPLETED')
-       RETURNING *`,
-      [
-        invoice.id,
-        invoice.organization_id,
-        validatedMoney.amountCents,
-        validatedMoney.currency,
-        body.paymentMethod || 'BANK_TRANSFER',
-        body.idempotencyKey || null
-      ],
-      actorId
-    );
-    const payment = paymentRes.rows[0];
+      if (outstandingCents <= 0) {
+        throw new BadRequestException('Invoice is already fully paid');
+      }
 
-    // Update invoice status if fully paid
-    if (totalPaidCents + validatedMoney.amountCents >= invoice.amount_cents) {
-      await this.db.query(
-        "UPDATE public.invoices SET status = 'PAID' WHERE id = $1",
-        [invoice.id],
-        actorId
+      if (validatedMoney.amountCents > outstandingCents) {
+        throw new BadRequestException(
+          `Payment amount (${validatedMoney.amountCents} cents) exceeds outstanding invoice balance (${outstandingCents} cents)`
+        );
+      }
+
+      // 5. Insert payment row with status COMPLETED or PENDING
+      const paymentStatus = body.status || 'COMPLETED';
+      const paymentRes = await client.query(
+        `INSERT INTO public.payments (invoice_id, organization_id, amount_cents, currency, payment_method, idempotency_key, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING *`,
+        [
+          invoice.id,
+          invoice.organization_id,
+          validatedMoney.amountCents,
+          validatedMoney.currency,
+          body.paymentMethod || 'BANK_TRANSFER',
+          body.idempotencyKey || null,
+          paymentStatus
+        ]
       );
-    }
+      const payment = paymentRes.rows[0];
 
-    await this.auditService.logAction({
-      domain: Domain.PAYMENTS,
-      action: 'PAYMENT_PROCESSED',
-      actorId,
-      organizationId: invoice.organization_id,
-      afterState: payment
-    });
+      // Update invoice status if fully paid and payment is completed
+      if (paymentStatus === 'COMPLETED' && (totalPaidCents + validatedMoney.amountCents >= invoice.amount_cents)) {
+        await client.query(
+          "UPDATE public.invoices SET status = 'PAID' WHERE id = $1",
+          [invoice.id]
+        );
+      }
 
-    return payment;
+      await this.auditService.logAction({
+        domain: Domain.PAYMENTS,
+        action: 'PAYMENT_PROCESSED',
+        actorId,
+        organizationId: invoice.organization_id,
+        afterState: payment
+      });
+
+      return payment;
+    }, actorId);
   }
 }
 

@@ -85,6 +85,9 @@ export class AuthGuard implements CanActivate {
     const jwtSecret = process.env.SUPABASE_JWT_SECRET || process.env.JWT_SECRET;
 
     if (!jwtSecret) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new UnauthorizedException('SUPABASE_JWT_SECRET environment variable is missing on server');
+      }
       if (process.env.NODE_ENV === 'test') {
         request.user = {
           userId: '00000000-0000-0000-0000-000000000001',
@@ -99,7 +102,11 @@ export class AuthGuard implements CanActivate {
     }
 
     try {
-      const expectedIssuer = process.env.SUPABASE_JWT_ISSUER || (process.env.NODE_ENV === 'production' ? 'https://supabase.wuchan.com/auth/v1' : undefined);
+      if (process.env.NODE_ENV === 'production' && !process.env.SUPABASE_JWT_ISSUER) {
+        throw new UnauthorizedException('SUPABASE_JWT_ISSUER environment variable must be configured in production');
+      }
+
+      const expectedIssuer = process.env.SUPABASE_JWT_ISSUER;
       const expectedAudience = process.env.SUPABASE_JWT_AUDIENCE || 'authenticated';
 
       const decoded = jwt.verify(token, jwtSecret, {
@@ -112,10 +119,10 @@ export class AuthGuard implements CanActivate {
 
       const requestedOrgId = request.headers['x-org-id'] as string;
 
-      // Validate org membership via server-side database lookup
       const memberRes = await this.db.query(
         'SELECT organization_id, role FROM public.organization_members WHERE user_id = $1',
-        [userId]
+        [userId],
+        userId
       );
 
       const memberships = memberRes.rows;
@@ -148,7 +155,7 @@ export class AuthGuard implements CanActivate {
       request.user = userContext;
       return true;
     } catch (err) {
-      if (err instanceof ForbiddenException) {
+      if (err instanceof ForbiddenException || err instanceof UnauthorizedException) {
         throw err;
       }
       if (isPublic) {
