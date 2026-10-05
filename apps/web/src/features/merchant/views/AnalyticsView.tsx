@@ -68,7 +68,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ adapter }) => {
         </h3>
         <div className="flex items-end justify-between h-48 pt-6 px-4 bg-slate-950 rounded-xl border border-slate-800">
           {analytics.monthlyRevenue.map((item, index) => {
-            const heightPercent = (item.amount.amount / 80000000) * 100;
+            const heightPercent = (item.amount.amountCents / 80000000) * 100;
             return (
               <div key={index} className="flex flex-col items-center gap-2 flex-1">
                 <span className="text-[10px] font-bold text-emerald-400">{formatMoney(item.amount)}</span>

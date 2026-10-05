@@ -21,9 +21,9 @@ export const RFQQuoteView: React.FC<RFQQuoteViewProps> = ({ adapter }) => {
     const latestVer = selectedQuote.versions[selectedQuote.versions.length - 1];
 
     const newSubtotal = latestVer.subtotal;
-    const newDiscount = { amount: discountAmount, currency: 'USD' };
+    const newDiscount = { amountCents: discountAmount, currency: 'USD' };
     const newShipping = latestVer.shipping;
-    const newTotal = { amount: newSubtotal.amount - newDiscount.amount + newShipping.amount, currency: 'USD' };
+    const newTotal = { amountCents: newSubtotal.amountCents - newDiscount.amountCents + newShipping.amountCents, currency: 'USD' };
 
     const updated = adapter.createQuoteVersion(selectedQuote.id, {
       createdBy: 'Sales Director - Sarah',
