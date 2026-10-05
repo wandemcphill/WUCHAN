@@ -32,7 +32,7 @@ function NewRfqContent() {
   const selectedProduct = MOCK_PRODUCTS.find((p) => p.id === selectedProductId) || MOCK_PRODUCTS[0];
   const selectedProject = MOCK_PROJECTS.find((p) => p.id === selectedProjectId) || MOCK_PROJECTS[0];
 
-  const estimatedSubtotal = selectedProduct.basePriceUsd * quantity;
+  const estimatedSubtotal = { amountCents: selectedProduct.basePriceUsd.amountCents * quantity, currency: selectedProduct.basePriceUsd.currency };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">

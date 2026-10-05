@@ -27,7 +27,7 @@ function QuoteCompareInner({ quoteId }: { quoteId: string }) {
   const v1 = quote.versionHistory[0];
   const v2 = quote.versionHistory[1] || quote.currentVersion;
 
-  const totalDeltaUsd = v2.totalUsd - v1.totalUsd;
+  const totalDeltaCents = v2.totalUsd.amountCents - v1.totalUsd.amountCents;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
@@ -66,7 +66,7 @@ function QuoteCompareInner({ quoteId }: { quoteId: string }) {
           <div className="text-right shrink-0">
             <span className="text-[10px] text-slate-400 uppercase font-mono block">Net Commercial Savings</span>
             <span className="text-lg font-extrabold text-emerald-400 font-mono">
-              {formatCurrency(Math.abs(totalDeltaUsd), currency)}
+              {formatCurrency({ amountCents: Math.abs(totalDeltaCents), currency: v2.totalUsd.currency }, currency)}
             </span>
           </div>
         </div>

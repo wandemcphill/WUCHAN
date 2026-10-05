@@ -34,7 +34,8 @@ function QuoteDetailInner({ quoteId }: { quoteId: string }) {
   const version = quote.currentVersion;
 
   const [poRef, setPoRef] = useState(quote.purchaseOrderRef || 'PO-HORIZON-2025-004');
-  const [isAccepted, setIsAccepted] = useState(quote.status === 'ACCEPTED');
+  const [isAccepted] = useState(quote.status === 'ACCEPTED');
+  const [demoApprovalQueued, setDemoApprovalQueued] = useState(false);
   const [isAcceptModalOpen, setIsAcceptModalOpen] = useState(false);
 
   const canApprove = currentUser.role === 'PROCUREMENT_LEAD' || currentUser.role === 'FINANCE_OFFICER';
@@ -108,7 +109,7 @@ function QuoteDetailInner({ quoteId }: { quoteId: string }) {
             <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
               <span className="text-[10px] text-slate-400 uppercase font-mono block">Sea Freight & Insurance ({version.incoterms})</span>
               <strong className="text-blue-400 text-base block font-mono">
-                +{formatCurrency(version.seaFreightEstimateUsd + version.customsInsuranceEstimateUsd, currency)}
+                +{formatCurrency({ amountCents: version.seaFreightEstimateUsd.amountCents + version.customsInsuranceEstimateUsd.amountCents, currency: version.seaFreightEstimateUsd.currency }, currency)}
               </strong>
             </div>
 
@@ -189,6 +190,13 @@ function QuoteDetailInner({ quoteId }: { quoteId: string }) {
           </div>
         </div>
 
+        {demoApprovalQueued && (
+          <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-2xl border border-blue-500/30 bg-slate-900 p-4 text-xs text-blue-200 shadow-2xl">
+            <strong className="block text-white">Demo action queued</strong>
+            <p className="mt-1 leading-relaxed">No quote status changed. In the live workspace, this action will call the authenticated API and display the new state only after server confirmation.</p>
+          </div>
+        )}
+
         {isAcceptModalOpen && (
           <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-6 shadow-2xl">
@@ -223,7 +231,7 @@ function QuoteDetailInner({ quoteId }: { quoteId: string }) {
                   <div className="p-3 bg-amber-950/30 border border-amber-900/50 rounded-xl text-amber-300 space-y-1">
                     <strong className="block text-amber-200">Financial Commitment Disclaimer:</strong>
                     <p className="text-[11px] leading-relaxed">
-                      Acceptance creates an explicit commercial order. Production will commence upon verification of the 30% contract deposit wire transfer.
+                      Demo mode only: no commercial order is created from this screen. Live acceptance must be confirmed by the WUCHAN API before any order or invoice is unlocked.
                     </p>
                   </div>
 
@@ -236,7 +244,7 @@ function QuoteDetailInner({ quoteId }: { quoteId: string }) {
                     </button>
                     <button
                       onClick={() => {
-                        setIsAccepted(true);
+                        setDemoApprovalQueued(true);
                         setIsAcceptModalOpen(false);
                       }}
                       className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/20 transition flex items-center gap-1.5"

@@ -52,7 +52,7 @@ function ProductDetailInner({ productId }: { productId: string }) {
     return initial;
   });
 
-  let extraPriceUsd = 0;
+  let extraPriceCents = 0;
   let extraWeightKg = 0;
   let extraCbm = 0;
   let extraLeadDays = 0;
@@ -63,7 +63,7 @@ function ProductDetailInner({ productId }: { productId: string }) {
     const chosenValId = selectedOptions[grp.id];
     const val = grp.values.find((v) => v.id === chosenValId);
     if (val) {
-      extraPriceUsd += val.priceDeltaUsd;
+      extraPriceCents += val.priceDeltaUsd.amountCents;
       extraWeightKg += val.weightDeltaKg;
       extraCbm += val.cbmDelta;
       extraLeadDays += val.leadTimeDeltaDays;
@@ -81,7 +81,7 @@ function ProductDetailInner({ productId }: { productId: string }) {
     }
   });
 
-  const totalPriceUsd = product.basePriceUsd + extraPriceUsd;
+  const totalPriceUsd = { amountCents: product.basePriceUsd.amountCents + extraPriceCents, currency: product.basePriceUsd.currency };
   const totalWeightKg = product.physicalProfile.weightKg + extraWeightKg;
   const totalCbm = product.physicalProfile.shippingVolumeCbm + extraCbm;
   const totalLeadDays = product.baseLeadTimeDays + extraLeadDays;
@@ -235,9 +235,9 @@ function ProductDetailInner({ productId }: { productId: string }) {
                             </div>
 
                             <span className="font-mono text-slate-300 font-semibold shrink-0 ml-2">
-                              {val.priceDeltaUsd > 0
+                              {val.priceDeltaUsd.amountCents > 0
                                 ? `+${formatCurrency(val.priceDeltaUsd, currency)}`
-                                : val.priceDeltaUsd < 0
+                                : val.priceDeltaUsd.amountCents < 0
                                 ? formatCurrency(val.priceDeltaUsd, currency)
                                 : 'Included'}
                             </span>
@@ -268,7 +268,7 @@ function ProductDetailInner({ productId }: { productId: string }) {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                 <Link
-                  href={`/rfqs/new?productId=${product.id}&price=${totalPriceUsd}`}
+                  href={`/rfqs/new?productId=${product.id}&priceCents=${totalPriceUsd.amountCents}`}
                   className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/20 text-center transition flex items-center justify-center gap-1.5"
                 >
                   <FileCheck2 className="w-4 h-4" />

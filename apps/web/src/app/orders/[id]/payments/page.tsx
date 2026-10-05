@@ -33,7 +33,7 @@ function OrderPaymentsInner({ orderId }: { orderId: string }) {
 
   const [activeMilestones, setActiveMilestones] = useState(order.paymentMilestones);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
-  const [wireRef, setWireRef] = useState('WT-JPMC-2025-99812');
+  const [wireRef, setWireRef] = useState('DEMO-WIRE-REFERENCE');
   const [uploadedReceiptName, setUploadedReceiptName] = useState<string | null>(null);
 
   const handleUploadReceipt = () => {
@@ -145,26 +145,15 @@ function OrderPaymentsInner({ orderId }: { orderId: string }) {
           <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4 shadow-xl">
             <h2 className="text-sm font-bold text-slate-100 flex items-center gap-2">
               <Building2 className="w-4 h-4 text-blue-400" />
-              Verified Beneficiary Bank Wire Details
+              Merchant Payment Instructions
             </h2>
-
-            <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3 text-xs font-mono">
-              <div>
-                <span className="text-[10px] text-slate-500 uppercase block">Beneficiary Account Name</span>
-                <strong className="text-slate-100 text-sm block">WUCHAN INTERNATIONAL COMMERCE LTD</strong>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-500 uppercase block">Bank Name</span>
-                <strong className="text-slate-200 block">JPMorgan Chase Bank N.A. (Hong Kong Branch)</strong>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-500 uppercase block">SWIFT / BIC Code</span>
-                <strong className="text-blue-400 block">CHAS33HKX</strong>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-500 uppercase block">Account Number</span>
-                <strong className="text-slate-100 block">883-9102-4410-09</strong>
-              </div>
+            <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-3 text-xs">
+              <p className="text-slate-300 leading-relaxed">
+                Beneficiary bank details are never hardcoded into the application. They are supplied from the authenticated merchant invoice record and should be verified against the invoice before payment.
+              </p>
+              <p className="text-amber-300 text-[11px] leading-relaxed">
+                Demo workspace: no live beneficiary or settlement details are displayed here.
+              </p>
             </div>
           </div>
 
@@ -225,7 +214,7 @@ function OrderPaymentsInner({ orderId }: { orderId: string }) {
                 </div>
 
                 <div
-                  onClick={() => setUploadedReceiptName('Wire_Transfer_Receipt_305200USD.pdf')}
+                  onClick={() => setUploadedReceiptName('DEMO_WIRE_RECEIPT.pdf')}
                   className="border-2 border-dashed border-slate-800 hover:border-slate-700 rounded-xl p-6 text-center cursor-pointer bg-slate-950/50 transition"
                 >
                   <Upload className="w-6 h-6 text-slate-500 mx-auto mb-2" />
