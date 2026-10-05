@@ -9,9 +9,9 @@ describe('B2B Currency Formatter', () => {
   });
 
   it('converts USD to EUR correctly using exchange rate', () => {
-    const amountUsd = 10000;
-    const expectedEur = Math.round(amountUsd * CURRENCY_RATES.EUR.rateToUsd);
-    expect(formatCurrency(amountUsd, 'EUR')).toBe(`€${expectedEur.toLocaleString('en-US')}`);
+    const amount = { amountCents: 1000000, currency: 'USD' as const };
+    const expectedEur = (amount.amountCents / 100) * CURRENCY_RATES.EUR.rateToUsd;
+    expect(formatCurrency(amount, 'EUR')).toBe(`€${expectedEur.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
   });
 });
 
