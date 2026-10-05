@@ -1,5 +1,6 @@
 -- 00003_rls_policies.sql
--- Enable Row Level Security (RLS) and define explicit policies for all 38 tables
+-- WUCHAN tenant security policies. Policies are intentionally explicit by
+-- relationship so child rows inherit the parent organization's boundary.
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
@@ -40,176 +41,437 @@ ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.outbox_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 
--- Helper function to resolve current user ID safely from transaction claims or Supabase auth context
-CREATE OR REPLACE FUNCTION public.current_user_id()
-RETURNS UUID AS $$
-BEGIN
-  RETURN COALESCE(
+CREATE OR REPLACE FUNCTION public.current_actor_id()
+RETURNS UUID
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT COALESCE(
     NULLIF(current_setting('request.jwt.claim.sub', true), '')::UUID,
     auth.uid()
   );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
--- Helper function to check org membership safely against current session user
 CREATE OR REPLACE FUNCTION public.is_org_member(target_org_id UUID)
-RETURNS BOOLEAN AS $$
-BEGIN
-  IF target_org_id IS NULL THEN
-    RETURN FALSE;
-  END IF;
-  RETURN EXISTS (
-    SELECT 1 FROM public.organization_members
-    WHERE organization_id = target_org_id
-      AND user_id = public.current_user_id()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.organization_members om
+    WHERE om.organization_id = target_org_id
+      AND om.user_id = public.current_actor_id()
   );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
--- 1. Profiles (1)
-CREATE POLICY "Profiles select" ON public.profiles FOR SELECT USING (true);
-CREATE POLICY "Profiles update" ON public.profiles FOR UPDATE USING (id = public.current_user_id()) WITH CHECK (id = public.current_user_id());
+CREATE OR REPLACE FUNCTION public.is_org_admin(target_org_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.organization_members om
+    WHERE om.organization_id = target_org_id
+      AND om.user_id = public.current_actor_id()
+      AND om.role IN ('PLATFORM_ADMIN', 'ORG_OWNER', 'ORG_ADMIN')
+  );
+$$;
 
--- 2. Organizations & Members (2, 3)
-CREATE POLICY "Organizations select" ON public.organizations FOR SELECT USING (public.is_org_member(id));
-CREATE POLICY "Organizations insert" ON public.organizations FOR INSERT WITH CHECK (true);
-CREATE POLICY "Organizations update" ON public.organizations FOR UPDATE USING (public.is_org_member(id)) WITH CHECK (public.is_org_member(id));
+CREATE OR REPLACE FUNCTION public.is_platform_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.organization_members om
+    WHERE om.user_id = public.current_actor_id()
+      AND om.role = 'PLATFORM_ADMIN'
+  );
+$$;
 
-CREATE POLICY "Org members select" ON public.organization_members FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "Org members insert" ON public.organization_members FOR INSERT WITH CHECK (public.is_org_member(organization_id));
-CREATE POLICY "Org members update" ON public.organization_members FOR UPDATE USING (public.is_org_member(organization_id)) WITH CHECK (public.is_org_member(organization_id));
-CREATE POLICY "Org members delete" ON public.organization_members FOR DELETE USING (public.is_org_member(organization_id));
+-- Profiles
+CREATE POLICY "profiles_select"
+  ON public.profiles FOR SELECT
+  USING (
+    id = public.current_actor_id()
+    OR EXISTS (
+      SELECT 1
+      FROM public.organization_members mine
+      JOIN public.organization_members theirs
+        ON theirs.organization_id = mine.organization_id
+      WHERE mine.user_id = public.current_actor_id()
+        AND theirs.user_id = profiles.id
+    )
+  );
 
--- 3. Projects & Site Parcels (4, 5)
-CREATE POLICY "Projects select" ON public.projects FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "Projects insert" ON public.projects FOR INSERT WITH CHECK (public.is_org_member(organization_id));
-CREATE POLICY "Projects update" ON public.projects FOR UPDATE USING (public.is_org_member(organization_id)) WITH CHECK (public.is_org_member(organization_id));
-CREATE POLICY "Projects delete" ON public.projects FOR DELETE USING (public.is_org_member(organization_id));
+CREATE POLICY "profiles_update"
+  ON public.profiles FOR UPDATE
+  USING (id = public.current_actor_id())
+  WITH CHECK (id = public.current_actor_id());
 
-CREATE POLICY "Site parcels select" ON public.site_parcels FOR SELECT USING (EXISTS (SELECT 1 FROM public.projects p WHERE p.id = project_id AND public.is_org_member(p.organization_id)));
-CREATE POLICY "Site parcels insert" ON public.site_parcels FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.projects p WHERE p.id = project_id AND public.is_org_member(p.organization_id)));
-CREATE POLICY "Site parcels update" ON public.site_parcels FOR UPDATE USING (EXISTS (SELECT 1 FROM public.projects p WHERE p.id = project_id AND public.is_org_member(p.organization_id))) WITH CHECK (EXISTS (SELECT 1 FROM public.projects p WHERE p.id = project_id AND public.is_org_member(p.organization_id)));
+-- Organizations / memberships
+CREATE POLICY "organizations_select"
+  ON public.organizations FOR SELECT
+  USING (public.is_org_member(id) OR public.is_platform_admin());
 
--- 4. Merchant Profiles & Capacities (6, 7)
-CREATE POLICY "Merchant profiles select" ON public.merchant_profiles FOR SELECT USING (true);
-CREATE POLICY "Merchant profiles update" ON public.merchant_profiles FOR UPDATE USING (public.is_org_member(organization_id)) WITH CHECK (public.is_org_member(organization_id));
+CREATE POLICY "organizations_insert"
+  ON public.organizations FOR INSERT
+  WITH CHECK (true);
 
-CREATE POLICY "Factory capacities select" ON public.factory_capacities FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "Factory capacities update" ON public.factory_capacities FOR UPDATE USING (public.is_org_member(organization_id)) WITH CHECK (public.is_org_member(organization_id));
+CREATE POLICY "organizations_update"
+  ON public.organizations FOR UPDATE
+  USING (public.is_org_admin(id) OR public.is_platform_admin())
+  WITH CHECK (public.is_org_admin(id) OR public.is_platform_admin());
 
--- 5. Catalog Products, Options, Configs, BOM (8, 9, 10, 11)
-CREATE POLICY "Products select" ON public.products FOR SELECT USING (is_public = TRUE OR public.is_org_member(organization_id));
-CREATE POLICY "Products insert" ON public.products FOR INSERT WITH CHECK (public.is_org_member(organization_id));
-CREATE POLICY "Products update" ON public.products FOR UPDATE USING (public.is_org_member(organization_id)) WITH CHECK (public.is_org_member(organization_id));
-CREATE POLICY "Products delete" ON public.products FOR DELETE USING (public.is_org_member(organization_id));
+CREATE POLICY "organization_members_select"
+  ON public.organization_members FOR SELECT
+  USING (public.is_org_member(organization_id) OR public.is_platform_admin());
 
-CREATE POLICY "Product options select" ON public.product_options FOR SELECT USING (EXISTS (SELECT 1 FROM public.products p WHERE p.id = product_id AND (p.is_public = TRUE OR public.is_org_member(p.organization_id))));
-CREATE POLICY "Product options insert" ON public.product_options FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.products p WHERE p.id = product_id AND public.is_org_member(p.organization_id)));
-CREATE POLICY "Product options update" ON public.product_options FOR UPDATE USING (EXISTS (SELECT 1 FROM public.products p WHERE p.id = product_id AND public.is_org_member(p.organization_id))) WITH CHECK (EXISTS (SELECT 1 FROM public.products p WHERE p.id = product_id AND public.is_org_member(p.organization_id)));
+CREATE POLICY "organization_members_insert"
+  ON public.organization_members FOR INSERT
+  WITH CHECK (public.is_org_admin(organization_id) OR public.is_platform_admin());
 
-CREATE POLICY "Product configs select" ON public.product_configurations FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "Product configs insert" ON public.product_configurations FOR INSERT WITH CHECK (public.is_org_member(organization_id));
+CREATE POLICY "organization_members_update"
+  ON public.organization_members FOR UPDATE
+  USING (public.is_org_admin(organization_id) OR public.is_platform_admin())
+  WITH CHECK (public.is_org_admin(organization_id) OR public.is_platform_admin());
 
-CREATE POLICY "BOM select" ON public.bill_of_materials FOR SELECT USING (EXISTS (SELECT 1 FROM public.products p WHERE p.id = product_id AND public.is_org_member(p.organization_id)));
-CREATE POLICY "BOM insert" ON public.bill_of_materials FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.products p WHERE p.id = product_id AND public.is_org_member(p.organization_id)));
+CREATE POLICY "organization_members_delete"
+  ON public.organization_members FOR DELETE
+  USING (public.is_org_admin(organization_id) OR public.is_platform_admin());
 
--- 6. RFQ, Quotes, Versions, Contracts (12, 13, 14, 15)
-CREATE POLICY "RFQs select" ON public.rfqs FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "RFQs insert" ON public.rfqs FOR INSERT WITH CHECK (public.is_org_member(organization_id));
-CREATE POLICY "RFQs update" ON public.rfqs FOR UPDATE USING (public.is_org_member(organization_id)) WITH CHECK (public.is_org_member(organization_id));
+-- Direct organization-owned tables
+CREATE POLICY "projects_all" ON public.projects
+  FOR ALL USING (public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
-CREATE POLICY "Quotes select" ON public.quotes FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "Quotes insert" ON public.quotes FOR INSERT WITH CHECK (public.is_org_member(organization_id));
-CREATE POLICY "Quotes update" ON public.quotes FOR UPDATE USING (public.is_org_member(organization_id)) WITH CHECK (public.is_org_member(organization_id));
+CREATE POLICY "merchant_profiles_select" ON public.merchant_profiles
+  FOR SELECT USING (true);
 
-CREATE POLICY "Quote versions select" ON public.quote_versions FOR SELECT USING (EXISTS (SELECT 1 FROM public.quotes q WHERE q.id = quote_id AND public.is_org_member(q.organization_id)));
-CREATE POLICY "Quote versions insert" ON public.quote_versions FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.quotes q WHERE q.id = quote_id AND public.is_org_member(q.organization_id)));
+CREATE POLICY "merchant_profiles_write" ON public.merchant_profiles
+  FOR ALL USING (public.is_org_admin(organization_id))
+  WITH CHECK (public.is_org_admin(organization_id));
 
-CREATE POLICY "Contracts select" ON public.contracts FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "Contracts insert" ON public.contracts FOR INSERT WITH CHECK (public.is_org_member(organization_id));
-CREATE POLICY "Contracts update" ON public.contracts FOR UPDATE USING (public.is_org_member(organization_id)) WITH CHECK (public.is_org_member(organization_id));
+CREATE POLICY "factory_capacities_all" ON public.factory_capacities
+  FOR ALL USING (public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
--- 7. Orders & Change Requests (16, 17)
-CREATE POLICY "Orders select" ON public.orders FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "Orders insert" ON public.orders FOR INSERT WITH CHECK (public.is_org_member(organization_id));
-CREATE POLICY "Orders update" ON public.orders FOR UPDATE USING (public.is_org_member(organization_id)) WITH CHECK (public.is_org_member(organization_id));
+CREATE POLICY "products_all" ON public.products
+  FOR ALL
+  USING (is_public = TRUE OR public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
-CREATE POLICY "Change requests select" ON public.order_change_requests FOR SELECT USING (EXISTS (SELECT 1 FROM public.orders o WHERE o.id = order_id AND public.is_org_member(o.organization_id)));
-CREATE POLICY "Change requests insert" ON public.order_change_requests FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.orders o WHERE o.id = order_id AND public.is_org_member(o.organization_id)));
+CREATE POLICY "product_configurations_all" ON public.product_configurations
+  FOR ALL USING (public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
--- 8. Invoices & Payments (18, 19)
-CREATE POLICY "Invoices select" ON public.invoices FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "Invoices insert" ON public.invoices FOR INSERT WITH CHECK (public.is_org_member(organization_id));
-CREATE POLICY "Invoices update" ON public.invoices FOR UPDATE USING (public.is_org_member(organization_id)) WITH CHECK (public.is_org_member(organization_id));
+CREATE POLICY "rfqs_all" ON public.rfqs
+  FOR ALL USING (public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
-CREATE POLICY "Payments select" ON public.payments FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "Payments insert" ON public.payments FOR INSERT WITH CHECK (public.is_org_member(organization_id));
-CREATE POLICY "Payments update" ON public.payments FOR UPDATE USING (public.is_org_member(organization_id)) WITH CHECK (public.is_org_member(organization_id));
+CREATE POLICY "quotes_all" ON public.quotes
+  FOR ALL USING (public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
--- 9. Inventory, Movements, Reservations (20, 21, 22)
-CREATE POLICY "Inventory select" ON public.inventory_items FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "Inventory insert" ON public.inventory_items FOR INSERT WITH CHECK (public.is_org_member(organization_id));
-CREATE POLICY "Inventory update" ON public.inventory_items FOR UPDATE USING (public.is_org_member(organization_id)) WITH CHECK (public.is_org_member(organization_id));
+CREATE POLICY "contracts_all" ON public.contracts
+  FOR ALL USING (public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
-CREATE POLICY "Inventory movements select" ON public.inventory_movements FOR SELECT USING (EXISTS (SELECT 1 FROM public.inventory_items i WHERE i.id = inventory_item_id AND public.is_org_member(i.organization_id)));
-CREATE POLICY "Inventory movements insert" ON public.inventory_movements FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.inventory_items i WHERE i.id = inventory_item_id AND public.is_org_member(i.organization_id)));
+CREATE POLICY "orders_all" ON public.orders
+  FOR ALL USING (public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
-CREATE POLICY "Inventory reservations select" ON public.inventory_reservations FOR SELECT USING (EXISTS (SELECT 1 FROM public.inventory_items i WHERE i.id = inventory_item_id AND public.is_org_member(i.organization_id)));
-CREATE POLICY "Inventory reservations insert" ON public.inventory_reservations FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.inventory_items i WHERE i.id = inventory_item_id AND public.is_org_member(i.organization_id)));
+CREATE POLICY "invoices_all" ON public.invoices
+  FOR ALL USING (public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
--- 10. Production & QC (23, 24)
-CREATE POLICY "Production orders select" ON public.production_orders FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "Production orders insert" ON public.production_orders FOR INSERT WITH CHECK (public.is_org_member(organization_id));
-CREATE POLICY "Production orders update" ON public.production_orders FOR UPDATE USING (public.is_org_member(organization_id)) WITH CHECK (public.is_org_member(organization_id));
+CREATE POLICY "payments_all" ON public.payments
+  FOR ALL USING (public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
-CREATE POLICY "QC inspections select" ON public.qc_inspections FOR SELECT USING (EXISTS (SELECT 1 FROM public.production_orders po WHERE po.id = production_order_id AND public.is_org_member(po.organization_id)));
-CREATE POLICY "QC inspections insert" ON public.qc_inspections FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.production_orders po WHERE po.id = production_order_id AND public.is_org_member(po.organization_id)));
+CREATE POLICY "inventory_items_all" ON public.inventory_items
+  FOR ALL USING (public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
--- 11. Logistics: Shipments, Containers, Packages, Events (25, 26, 27, 28)
-CREATE POLICY "Shipments select" ON public.shipments FOR SELECT USING (EXISTS (SELECT 1 FROM public.orders o WHERE o.id = order_id AND public.is_org_member(o.organization_id)));
-CREATE POLICY "Shipments insert" ON public.shipments FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.orders o WHERE o.id = order_id AND public.is_org_member(o.organization_id)));
-CREATE POLICY "Shipments update" ON public.shipments FOR UPDATE USING (EXISTS (SELECT 1 FROM public.orders o WHERE o.id = order_id AND public.is_org_member(o.organization_id))) WITH CHECK (EXISTS (SELECT 1 FROM public.orders o WHERE o.id = order_id AND public.is_org_member(o.organization_id)));
+CREATE POLICY "production_orders_all" ON public.production_orders
+  FOR ALL USING (public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
-CREATE POLICY "Containers select" ON public.shipment_containers FOR SELECT USING (EXISTS (SELECT 1 FROM public.shipments s JOIN public.orders o ON o.id = s.order_id WHERE s.id = shipment_id AND public.is_org_member(o.organization_id)));
-CREATE POLICY "Containers insert" ON public.shipment_containers FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.shipments s JOIN public.orders o ON o.id = s.order_id WHERE s.id = shipment_id AND public.is_org_member(o.organization_id)));
+CREATE POLICY "documents_all" ON public.documents
+  FOR ALL USING (public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
-CREATE POLICY "Packages select" ON public.shipment_packages FOR SELECT USING (EXISTS (SELECT 1 FROM public.shipment_containers c JOIN public.shipments s ON s.id = c.shipment_id JOIN public.orders o ON o.id = s.order_id WHERE c.id = container_id AND public.is_org_member(o.organization_id)));
-CREATE POLICY "Packages insert" ON public.shipment_packages FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.shipment_containers c JOIN public.shipments s ON s.id = c.shipment_id JOIN public.orders o ON o.id = s.order_id WHERE c.id = container_id AND public.is_org_member(o.organization_id)));
+CREATE POLICY "conversations_all" ON public.conversations
+  FOR ALL USING (public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
-CREATE POLICY "Tracking events select" ON public.shipment_tracking_events FOR SELECT USING (EXISTS (SELECT 1 FROM public.shipments s JOIN public.orders o ON o.id = s.order_id WHERE s.id = shipment_id AND public.is_org_member(o.organization_id)));
-CREATE POLICY "Tracking events insert" ON public.shipment_tracking_events FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.shipments s JOIN public.orders o ON o.id = s.order_id WHERE s.id = shipment_id AND public.is_org_member(o.organization_id)));
+CREATE POLICY "support_cases_all" ON public.support_cases
+  FOR ALL USING (public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
--- 12. Documents & Versions (29, 30)
-CREATE POLICY "Documents select" ON public.documents FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "Documents insert" ON public.documents FOR INSERT WITH CHECK (public.is_org_member(organization_id));
-CREATE POLICY "Documents update" ON public.documents FOR UPDATE USING (public.is_org_member(organization_id)) WITH CHECK (public.is_org_member(organization_id));
+CREATE POLICY "warranty_claims_all" ON public.warranty_claims
+  FOR ALL USING (public.is_org_member(organization_id))
+  WITH CHECK (public.is_org_member(organization_id));
 
-CREATE POLICY "Document versions select" ON public.document_versions FOR SELECT USING (EXISTS (SELECT 1 FROM public.documents d WHERE d.id = document_id AND public.is_org_member(d.organization_id)));
-CREATE POLICY "Document versions insert" ON public.document_versions FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.documents d WHERE d.id = document_id AND public.is_org_member(d.organization_id)));
+-- Child rows inheriting an organization boundary
+CREATE POLICY "site_parcels_all" ON public.site_parcels
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1 FROM public.projects p
+    WHERE p.id = site_parcels.project_id
+      AND public.is_org_member(p.organization_id)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM public.projects p
+    WHERE p.id = site_parcels.project_id
+      AND public.is_org_member(p.organization_id)
+  ));
 
--- 13. Conversations, Participants, Messages (31, 32, 33)
-CREATE POLICY "Conversations select" ON public.conversations FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "Conversations insert" ON public.conversations FOR INSERT WITH CHECK (public.is_org_member(organization_id));
+CREATE POLICY "product_options_all" ON public.product_options
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1 FROM public.products p
+    WHERE p.id = product_options.product_id
+      AND public.is_org_member(p.organization_id)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM public.products p
+    WHERE p.id = product_options.product_id
+      AND public.is_org_member(p.organization_id)
+  ));
 
-CREATE POLICY "Participants select" ON public.conversation_participants FOR SELECT USING (EXISTS (SELECT 1 FROM public.conversations c WHERE c.id = conversation_id AND public.is_org_member(c.organization_id)));
-CREATE POLICY "Participants insert" ON public.conversation_participants FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.conversations c WHERE c.id = conversation_id AND public.is_org_member(c.organization_id)));
+CREATE POLICY "bill_of_materials_all" ON public.bill_of_materials
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1 FROM public.products p
+    WHERE p.id = bill_of_materials.product_id
+      AND public.is_org_member(p.organization_id)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM public.products p
+    WHERE p.id = bill_of_materials.product_id
+      AND public.is_org_member(p.organization_id)
+  ));
 
-CREATE POLICY "Messages select" ON public.messages FOR SELECT USING (EXISTS (SELECT 1 FROM public.conversations c WHERE c.id = conversation_id AND public.is_org_member(c.organization_id)));
-CREATE POLICY "Messages insert" ON public.messages FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM public.conversations c WHERE c.id = conversation_id AND public.is_org_member(c.organization_id)));
+CREATE POLICY "quote_versions_all" ON public.quote_versions
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1 FROM public.quotes q
+    WHERE q.id = quote_versions.quote_id
+      AND public.is_org_member(q.organization_id)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM public.quotes q
+    WHERE q.id = quote_versions.quote_id
+      AND public.is_org_member(q.organization_id)
+  ));
 
--- 14. Support & Warranty Claims (34, 35)
-CREATE POLICY "Support cases select" ON public.support_cases FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "Support cases insert" ON public.support_cases FOR INSERT WITH CHECK (public.is_org_member(organization_id));
+CREATE POLICY "order_change_requests_all" ON public.order_change_requests
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1 FROM public.orders o
+    WHERE o.id = order_change_requests.order_id
+      AND public.is_org_member(o.organization_id)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM public.orders o
+    WHERE o.id = order_change_requests.order_id
+      AND public.is_org_member(o.organization_id)
+  ));
 
-CREATE POLICY "Warranty claims select" ON public.warranty_claims FOR SELECT USING (public.is_org_member(organization_id));
-CREATE POLICY "Warranty claims insert" ON public.warranty_claims FOR INSERT WITH CHECK (public.is_org_member(organization_id));
+CREATE POLICY "inventory_movements_all" ON public.inventory_movements
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1 FROM public.inventory_items i
+    WHERE i.id = inventory_movements.inventory_item_id
+      AND public.is_org_member(i.organization_id)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM public.inventory_items i
+    WHERE i.id = inventory_movements.inventory_item_id
+      AND public.is_org_member(i.organization_id)
+  ));
 
--- 15. Notifications, Outbox, Audit (36, 37, 38)
-CREATE POLICY "Notifications select" ON public.notifications FOR SELECT USING (user_id = public.current_user_id());
-CREATE POLICY "Notifications update" ON public.notifications FOR UPDATE USING (user_id = public.current_user_id()) WITH CHECK (user_id = public.current_user_id());
+CREATE POLICY "inventory_reservations_all" ON public.inventory_reservations
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1 FROM public.inventory_items i
+    WHERE i.id = inventory_reservations.inventory_item_id
+      AND public.is_org_member(i.organization_id)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM public.inventory_items i
+    WHERE i.id = inventory_reservations.inventory_item_id
+      AND public.is_org_member(i.organization_id)
+  ));
 
-CREATE POLICY "Outbox events select" ON public.outbox_events FOR SELECT USING (actor_id = public.current_user_id());
-CREATE POLICY "Outbox events insert" ON public.outbox_events FOR INSERT WITH CHECK (true);
+CREATE POLICY "qc_inspections_all" ON public.qc_inspections
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1 FROM public.production_orders po
+    WHERE po.id = qc_inspections.production_order_id
+      AND public.is_org_member(po.organization_id)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM public.production_orders po
+    WHERE po.id = qc_inspections.production_order_id
+      AND public.is_org_member(po.organization_id)
+  ));
 
-CREATE POLICY "Audit logs select" ON public.audit_logs FOR SELECT USING (organization_id IS NULL OR public.is_org_member(organization_id));
-CREATE POLICY "Audit logs insert" ON public.audit_logs FOR INSERT WITH CHECK (true);
+CREATE POLICY "shipments_all" ON public.shipments
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1 FROM public.orders o
+    WHERE o.id = shipments.order_id
+      AND public.is_org_member(o.organization_id)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM public.orders o
+    WHERE o.id = shipments.order_id
+      AND public.is_org_member(o.organization_id)
+  ));
+
+CREATE POLICY "shipment_containers_all" ON public.shipment_containers
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1
+    FROM public.shipments s
+    JOIN public.orders o ON o.id = s.order_id
+    WHERE s.id = shipment_containers.shipment_id
+      AND public.is_org_member(o.organization_id)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1
+    FROM public.shipments s
+    JOIN public.orders o ON o.id = s.order_id
+    WHERE s.id = shipment_containers.shipment_id
+      AND public.is_org_member(o.organization_id)
+  ));
+
+CREATE POLICY "shipment_packages_all" ON public.shipment_packages
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1
+    FROM public.shipment_containers sc
+    JOIN public.shipments s ON s.id = sc.shipment_id
+    JOIN public.orders o ON o.id = s.order_id
+    WHERE sc.id = shipment_packages.container_id
+      AND public.is_org_member(o.organization_id)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1
+    FROM public.shipment_containers sc
+    JOIN public.shipments s ON s.id = sc.shipment_id
+    JOIN public.orders o ON o.id = s.order_id
+    WHERE sc.id = shipment_packages.container_id
+      AND public.is_org_member(o.organization_id)
+  ));
+
+CREATE POLICY "shipment_tracking_events_all" ON public.shipment_tracking_events
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1
+    FROM public.shipments s
+    JOIN public.orders o ON o.id = s.order_id
+    WHERE s.id = shipment_tracking_events.shipment_id
+      AND public.is_org_member(o.organization_id)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1
+    FROM public.shipments s
+    JOIN public.orders o ON o.id = s.order_id
+    WHERE s.id = shipment_tracking_events.shipment_id
+      AND public.is_org_member(o.organization_id)
+  ));
+
+CREATE POLICY "document_versions_all" ON public.document_versions
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1 FROM public.documents d
+    WHERE d.id = document_versions.document_id
+      AND public.is_org_member(d.organization_id)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM public.documents d
+    WHERE d.id = document_versions.document_id
+      AND public.is_org_member(d.organization_id)
+  ));
+
+CREATE POLICY "conversation_participants_all" ON public.conversation_participants
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1 FROM public.conversations c
+    WHERE c.id = conversation_participants.conversation_id
+      AND public.is_org_member(c.organization_id)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM public.conversations c
+    WHERE c.id = conversation_participants.conversation_id
+      AND public.is_org_member(c.organization_id)
+  ));
+
+CREATE POLICY "messages_all" ON public.messages
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1 FROM public.conversations c
+    WHERE c.id = messages.conversation_id
+      AND public.is_org_member(c.organization_id)
+  ))
+  WITH CHECK (
+    sender_id = public.current_actor_id()
+    AND EXISTS (
+      SELECT 1 FROM public.conversations c
+      WHERE c.id = messages.conversation_id
+        AND public.is_org_member(c.organization_id)
+    )
+  );
+
+-- Notifications are user-scoped rather than org-scoped.
+CREATE POLICY "notifications_select" ON public.notifications
+  FOR SELECT USING (user_id = public.current_actor_id());
+
+CREATE POLICY "notifications_update" ON public.notifications
+  FOR UPDATE
+  USING (user_id = public.current_actor_id())
+  WITH CHECK (user_id = public.current_actor_id());
+
+-- Internal event/audit records are only attributable to the current actor.
+CREATE POLICY "outbox_events_actor" ON public.outbox_events
+  FOR ALL
+  USING (actor_id = public.current_actor_id())
+  WITH CHECK (actor_id = public.current_actor_id());
+
+CREATE POLICY "audit_logs_select" ON public.audit_logs
+  FOR SELECT
+  USING (
+    actor_id = public.current_actor_id()
+    OR organization_id IS NULL
+    OR public.is_org_member(organization_id)
+  );
+
+CREATE POLICY "audit_logs_insert" ON public.audit_logs
+  FOR INSERT
+  WITH CHECK (
+    actor_id = public.current_actor_id()
+    AND (organization_id IS NULL OR public.is_org_member(organization_id))
+  );
+
+CREATE POLICY "audit_logs_update" ON public.audit_logs
+  FOR UPDATE
+  USING (false)
+  WITH CHECK (false);
+
+CREATE POLICY "audit_logs_delete" ON public.audit_logs
+  FOR DELETE
+  USING (false);
