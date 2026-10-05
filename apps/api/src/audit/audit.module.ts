@@ -29,6 +29,40 @@ export class AuditService {
     private db: DatabaseService
   ) {}
 
+  async logActionInTransaction(
+    params: {
+      domain: Domain;
+      action: string;
+      actorId: string;
+      organizationId?: string;
+      resourceId?: string;
+      beforeState?: Record<string, any>;
+      afterState?: Record<string, any>;
+    },
+    client: import('pg').PoolClient
+  ) {
+    const validated = auditEventSchema.parse(params);
+
+    await this.db.insertAuditLog({
+      domain: validated.domain,
+      action: validated.action,
+      actorId: validated.actorId,
+      organizationId: validated.organizationId,
+      resourceId: validated.resourceId,
+      beforeState: validated.beforeState,
+      afterState: validated.afterState
+    }, client);
+
+    await this.db.insertOutboxEvent({
+      domain: validated.domain,
+      action: validated.action,
+      actorId: validated.actorId,
+      payload: validated
+    }, client);
+
+    return validated;
+  }
+
   async logAction(params: {
     domain: Domain;
     action: string;
@@ -38,37 +72,10 @@ export class AuditService {
     beforeState?: Record<string, any>;
     afterState?: Record<string, any>;
   }) {
-    const validated = auditEventSchema.parse({
-      domain: params.domain,
-      action: params.action,
-      actorId: params.actorId,
-      organizationId: params.organizationId,
-      resourceId: params.resourceId,
-      beforeState: params.beforeState,
-      afterState: params.afterState
-    });
-
-    // Write audit log and outbox event atomically in a single SQL transaction
-    await this.db.withTransaction(async (client) => {
-      await this.db.insertAuditLog({
-        domain: validated.domain,
-        action: validated.action,
-        actorId: validated.actorId,
-        organizationId: validated.organizationId,
-        resourceId: validated.resourceId,
-        beforeState: validated.beforeState,
-        afterState: validated.afterState
-      }, client);
-
-      await this.db.insertOutboxEvent({
-        domain: validated.domain,
-        action: validated.action,
-        actorId: validated.actorId,
-        payload: validated
-      }, client);
-    }, validated.actorId);
-
-    return validated;
+    return this.db.withTransaction(
+      (client) => this.logActionInTransaction(params, client),
+      params.actorId
+    );
   }
 }
 
@@ -79,8 +86,12 @@ export class AuditController {
 
   @Get()
   @RequirePermissions(Permission.AUDIT_READ)
-  async getAuditLogs() {
-    const res = await this.db.query('SELECT * FROM public.audit_logs ORDER BY created_at DESC');
+  async getAuditLogs(@Req() req: any) {
+    const res = await this.db.query(
+      'SELECT * FROM public.audit_logs ORDER BY created_at DESC',
+      [],
+      req.user.userId
+    );
     return res.rows;
   }
 }
