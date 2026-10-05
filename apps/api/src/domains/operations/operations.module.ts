@@ -18,8 +18,11 @@ export class PaymentsController {
   @Get()
   @RequirePermissions(Permission.PAYMENT_READ)
   async list(@Req() req: any) {
-    const userId = req.user.userId;
-    const res = await this.db.query('SELECT * FROM public.payments ORDER BY created_at DESC', [], userId);
+    const res = await this.db.query(
+      'SELECT * FROM public.payments ORDER BY created_at DESC',
+      [],
+      req.user.userId
+    );
     return res.rows;
   }
 
@@ -33,11 +36,16 @@ export class PaymentsController {
     if (!body.invoiceId) {
       throw new BadRequestException('invoiceId is required');
     }
+    if (typeof body.idempotencyKey !== 'string' || body.idempotencyKey.length < 8 || body.idempotencyKey.length > 255) {
+      throw new BadRequestException('A valid idempotencyKey is required for payment submission');
+    }
 
     return this.db.withTransaction(async (client) => {
-      // 1. Fetch invoice and verify tenant access
       const invoiceRes = await client.query(
-        'SELECT id, organization_id, amount_cents, currency, status FROM public.invoices WHERE id = $1',
+        `SELECT id, organization_id, amount_cents, currency, status
+         FROM public.invoices
+         WHERE id = $1
+         FOR UPDATE`,
         [body.invoiceId]
       );
       const invoice = invoiceRes.rows[0];
@@ -45,52 +53,51 @@ export class PaymentsController {
       if (!invoice) {
         throw new NotFoundException(`Invoice ${body.invoiceId} not found`);
       }
-
-      if (activeOrgId && invoice.organization_id !== activeOrgId) {
+      if (req.user.activeRole !== 'PLATFORM_ADMIN' && invoice.organization_id !== activeOrgId) {
         throw new ForbiddenException('Invoice belongs to a different organization');
       }
-
-      // 2. Validate currency match
-      if (invoice.currency !== validatedMoney.currency) {
-        throw new BadRequestException(
-          `Currency mismatch: Invoice is in ${invoice.currency}, but payment attempted in ${validatedMoney.currency}`
-        );
-      }
-
-      // 3. Idempotency check
-      if (body.idempotencyKey) {
-        const existingPayment = await client.query(
-          'SELECT * FROM public.payments WHERE idempotency_key = $1',
-          [body.idempotencyKey]
-        );
-        if (existingPayment.rows.length > 0) {
-          return existingPayment.rows[0];
-        }
-      }
-
-      // 4. Calculate previous payments and outstanding balance
-      const paidRes = await client.query(
-        "SELECT COALESCE(SUM(amount_cents), 0) AS total_paid FROM public.payments WHERE invoice_id = $1 AND status = 'COMPLETED'",
-        [invoice.id]
-      );
-      const totalPaidCents = parseInt(paidRes.rows[0].total_paid, 10);
-      const outstandingCents = invoice.amount_cents - totalPaidCents;
-
-      if (outstandingCents <= 0) {
+      if (invoice.status === 'PAID') {
         throw new BadRequestException('Invoice is already fully paid');
       }
-
-      if (validatedMoney.amountCents > outstandingCents) {
+      if (invoice.currency !== validatedMoney.currency) {
         throw new BadRequestException(
-          `Payment amount (${validatedMoney.amountCents} cents) exceeds outstanding invoice balance (${outstandingCents} cents)`
+          `Currency mismatch: invoice is ${invoice.currency}, payment is ${validatedMoney.currency}`
         );
       }
 
-      // 5. Insert payment row with status COMPLETED or PENDING
-      const paymentStatus = body.status || 'COMPLETED';
+      const existingPayment = await client.query(
+        'SELECT * FROM public.payments WHERE idempotency_key = $1',
+        [body.idempotencyKey]
+      );
+      if (existingPayment.rows.length > 0) {
+        return existingPayment.rows[0];
+      }
+
+      const paidRes = await client.query(
+        `SELECT COALESCE(SUM(amount_cents), 0)::bigint AS total_paid
+         FROM public.payments
+         WHERE invoice_id = $1 AND status = 'COMPLETED'`,
+        [invoice.id]
+      );
+      const totalPaidCents = Number(paidRes.rows[0]?.total_paid || 0);
+      const outstandingCents = Number(invoice.amount_cents) - totalPaidCents;
+
+      if (outstandingCents <= 0) {
+        throw new BadRequestException('Invoice has no outstanding balance');
+      }
+      if (validatedMoney.amountCents > outstandingCents) {
+        throw new BadRequestException(
+          `Payment exceeds outstanding balance of ${outstandingCents} minor units`
+        );
+      }
+
+      // Customer-submitted/manual payments are never treated as verified funds.
+      // Finance/provider reconciliation must explicitly transition the payment
+      // to COMPLETED later.
       const paymentRes = await client.query(
-        `INSERT INTO public.payments (invoice_id, organization_id, amount_cents, currency, payment_method, idempotency_key, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO public.payments
+          (invoice_id, organization_id, amount_cents, currency, payment_method, idempotency_key, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'PENDING_VERIFICATION')
          RETURNING *`,
         [
           invoice.id,
@@ -98,27 +105,26 @@ export class PaymentsController {
           validatedMoney.amountCents,
           validatedMoney.currency,
           body.paymentMethod || 'BANK_TRANSFER',
-          body.idempotencyKey || null,
-          paymentStatus
+          body.idempotencyKey
         ]
       );
       const payment = paymentRes.rows[0];
 
-      // Update invoice status if fully paid and payment is completed
-      if (paymentStatus === 'COMPLETED' && (totalPaidCents + validatedMoney.amountCents >= invoice.amount_cents)) {
+      if (invoice.status === 'UNPAID') {
         await client.query(
-          "UPDATE public.invoices SET status = 'PAID' WHERE id = $1",
+          "UPDATE public.invoices SET status = 'PAYMENT_PENDING_VERIFICATION' WHERE id = $1",
           [invoice.id]
         );
       }
 
-      await this.auditService.logAction({
+      await this.auditService.logActionInTransaction({
         domain: Domain.PAYMENTS,
-        action: 'PAYMENT_PROCESSED',
+        action: 'PAYMENT_SUBMITTED',
         actorId,
         organizationId: invoice.organization_id,
+        resourceId: payment.id,
         afterState: payment
-      });
+      }, client);
 
       return payment;
     }, actorId);
@@ -133,8 +139,11 @@ export class InvoicingController {
   @Get()
   @RequirePermissions(Permission.INVOICE_READ)
   async list(@Req() req: any) {
-    const userId = req.user.userId;
-    const res = await this.db.query('SELECT * FROM public.invoices ORDER BY created_at DESC', [], userId);
+    const res = await this.db.query(
+      'SELECT * FROM public.invoices ORDER BY created_at DESC',
+      [],
+      req.user.userId
+    );
     return res.rows;
   }
 }
@@ -147,8 +156,11 @@ export class InventoryController {
   @Get()
   @RequirePermissions(Permission.INVENTORY_READ)
   async list(@Req() req: any) {
-    const userId = req.user.userId;
-    const res = await this.db.query('SELECT * FROM public.inventory_items ORDER BY created_at DESC', [], userId);
+    const res = await this.db.query(
+      'SELECT * FROM public.inventory_items ORDER BY created_at DESC',
+      [],
+      req.user.userId
+    );
     return res.rows;
   }
 }
@@ -161,8 +173,11 @@ export class ProductionController {
   @Get()
   @RequirePermissions(Permission.PRODUCTION_READ)
   async list(@Req() req: any) {
-    const userId = req.user.userId;
-    const res = await this.db.query('SELECT * FROM public.production_orders ORDER BY created_at DESC', [], userId);
+    const res = await this.db.query(
+      'SELECT * FROM public.production_orders ORDER BY created_at DESC',
+      [],
+      req.user.userId
+    );
     return res.rows;
   }
 }
@@ -175,8 +190,11 @@ export class QualityController {
   @Get()
   @RequirePermissions(Permission.QUALITY_READ)
   async list(@Req() req: any) {
-    const userId = req.user.userId;
-    const res = await this.db.query('SELECT * FROM public.qc_inspections ORDER BY created_at DESC', [], userId);
+    const res = await this.db.query(
+      'SELECT * FROM public.qc_inspections ORDER BY created_at DESC',
+      [],
+      req.user.userId
+    );
     return res.rows;
   }
 }
@@ -189,8 +207,11 @@ export class ShippingController {
   @Get()
   @RequirePermissions(Permission.SHIPPING_READ)
   async list(@Req() req: any) {
-    const userId = req.user.userId;
-    const res = await this.db.query('SELECT * FROM public.shipments ORDER BY created_at DESC', [], userId);
+    const res = await this.db.query(
+      'SELECT * FROM public.shipments ORDER BY created_at DESC',
+      [],
+      req.user.userId
+    );
     return res.rows;
   }
 }
@@ -203,8 +224,11 @@ export class DocumentsController {
   @Get()
   @RequirePermissions(Permission.DOCUMENTS_READ)
   async list(@Req() req: any) {
-    const userId = req.user.userId;
-    const res = await this.db.query('SELECT * FROM public.documents ORDER BY created_at DESC', [], userId);
+    const res = await this.db.query(
+      'SELECT * FROM public.documents ORDER BY created_at DESC',
+      [],
+      req.user.userId
+    );
     return res.rows;
   }
 }
@@ -217,8 +241,11 @@ export class MessagingController {
   @Get()
   @RequirePermissions(Permission.MESSAGING_READ)
   async list(@Req() req: any) {
-    const userId = req.user.userId;
-    const res = await this.db.query('SELECT * FROM public.conversations ORDER BY created_at DESC', [], userId);
+    const res = await this.db.query(
+      'SELECT * FROM public.conversations ORDER BY created_at DESC',
+      [],
+      req.user.userId
+    );
     return res.rows;
   }
 }
@@ -231,8 +258,11 @@ export class NotificationsController {
   @Get()
   @RequirePermissions(Permission.NOTIFICATIONS_READ)
   async list(@Req() req: any) {
-    const userId = req.user.userId;
-    const res = await this.db.query('SELECT * FROM public.notifications ORDER BY created_at DESC', [], userId);
+    const res = await this.db.query(
+      'SELECT * FROM public.notifications ORDER BY created_at DESC',
+      [],
+      req.user.userId
+    );
     return res.rows;
   }
 }
