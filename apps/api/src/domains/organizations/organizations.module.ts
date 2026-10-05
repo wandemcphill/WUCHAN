@@ -18,11 +18,10 @@ export class OrganizationsController {
   @Get()
   @RequirePermissions(Permission.ORG_READ)
   async list(@Req() req: any) {
-    const userId = req.user.userId;
     const res = await this.db.query(
       'SELECT id, name, slug, type, country_code, created_at FROM public.organizations ORDER BY name ASC',
       [],
-      userId
+      req.user.userId
     );
     return res.rows;
   }
@@ -30,11 +29,10 @@ export class OrganizationsController {
   @Get(':id')
   @RequirePermissions(Permission.ORG_READ)
   async getById(@Req() req: any, @Param('id') id: string) {
-    const userId = req.user.userId;
     const res = await this.db.query(
       'SELECT id, name, slug, type, country_code, created_at FROM public.organizations WHERE id = $1',
       [id],
-      userId
+      req.user.userId
     );
     return res.rows[0] || null;
   }
@@ -45,24 +43,34 @@ export class OrganizationsController {
     const validated = createOrganizationSchema.parse(body);
     const actorId = req.user.userId;
 
-    const res = await this.db.query(
-      `INSERT INTO public.organizations (name, slug, type, logo_url, country_code)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, name, slug, type, country_code, created_at`,
-      [validated.name, validated.slug, validated.type, validated.logoUrl || null, validated.countryCode],
-      actorId
-    );
-    const org = res.rows[0];
+    return this.db.withTransaction(async (client) => {
+      const res = await client.query(
+        `INSERT INTO public.organizations (name, slug, type, logo_url, country_code)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, name, slug, type, country_code, created_at`,
+        [validated.name, validated.slug, validated.type, validated.logoUrl || null, validated.countryCode]
+      );
+      const org = res.rows[0];
 
-    await this.auditService.logAction({
-      domain: Domain.ORGANIZATIONS,
-      action: 'ORGANIZATION_CREATED',
-      actorId,
-      organizationId: org.id,
-      afterState: org
-    });
+      // The creator becomes the initial owner, preventing an orphaned tenant.
+      await client.query(
+        `INSERT INTO public.organization_members (organization_id, user_id, role)
+         VALUES ($1, $2, 'ORG_OWNER')
+         ON CONFLICT (organization_id, user_id) DO NOTHING`,
+        [org.id, actorId]
+      );
 
-    return org;
+      await this.auditService.logActionInTransaction({
+        domain: Domain.ORGANIZATIONS,
+        action: 'ORGANIZATION_CREATED',
+        actorId,
+        organizationId: org.id,
+        resourceId: org.id,
+        afterState: org
+      }, client);
+
+      return org;
+    }, actorId);
   }
 }
 
