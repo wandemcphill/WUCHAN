@@ -165,7 +165,7 @@ export interface Project {
   description: string;
   site: ProjectSite;
   targetDeliveryDate: string;
-  budgetUsd?: number;
+  budgetUsd?: Money;
   status: 'PLANNING' | 'ACTIVE' | 'ON_HOLD' | 'COMPLETED';
   rfqIds: string[];
   orderIds: string[];
