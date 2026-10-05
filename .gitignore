@@ -1,0 +1,11 @@
+/node_modules
+node_modules
+.next
+/dist
+dist
+build
+.cache
+.turbo
+.vitest
+coverage
+*.log
