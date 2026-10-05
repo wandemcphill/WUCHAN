@@ -115,14 +115,16 @@ export class AuthGuard implements CanActivate {
       }) as any;
 
       const userId = decoded.sub;
+      if (typeof userId !== 'string' || !/^[0-9a-fA-F-]{36}$/.test(userId)) {
+        throw new UnauthorizedException('JWT subject is missing or invalid');
+      }
       const email = decoded.email || 'user@wuchan.com';
 
       const requestedOrgId = request.headers['x-org-id'] as string;
 
-      const memberRes = await this.db.query(
+      const memberRes = await this.db.querySystem(
         'SELECT organization_id, role FROM public.organization_members WHERE user_id = $1',
-        [userId],
-        userId
+        [userId]
       );
 
       const memberships = memberRes.rows;
