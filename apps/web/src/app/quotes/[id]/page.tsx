@@ -108,7 +108,7 @@ function QuoteDetailInner({ quoteId }: { quoteId: string }) {
             <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
               <span className="text-[10px] text-slate-400 uppercase font-mono block">Sea Freight & Insurance ({version.incoterms})</span>
               <strong className="text-blue-400 text-base block font-mono">
-                +{formatCurrency(version.seaFreightEstimateUsd + version.customsInsuranceEstimateUsd, currency)}
+                +{formatCurrency({ amountCents: version.seaFreightEstimateUsd.amountCents + version.customsInsuranceEstimateUsd.amountCents, currency: version.seaFreightEstimateUsd.currency }, currency)}
               </strong>
             </div>
 
