@@ -1,4 +1,4 @@
-import { Module, Controller, Get, Post, Body, UseGuards, Param, Req } from '@nestjs/common';
+import { Module, Controller, Get, Post, Body, UseGuards, Param, Req, ForbiddenException } from '@nestjs/common';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -68,6 +68,11 @@ export class CatalogController {
   async createProduct(@Req() req: any, @Body() body: any) {
     const validated = createProductSchema.parse(body);
     const actorId = req.user.userId;
+
+    const activeOrgId = req.user.activeOrgId;
+    if (req.user.activeRole !== 'PLATFORM_ADMIN' && activeOrgId !== validated.organizationId) {
+      throw new ForbiddenException('Product organization must match the authenticated organization');
+    }
 
     const res = await this.db.query(
       `INSERT INTO public.products (organization_id, name, sku, description, is_public, base_price_cents, currency, lead_time_days)
