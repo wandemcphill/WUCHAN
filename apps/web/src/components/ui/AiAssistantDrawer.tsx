@@ -33,7 +33,7 @@ export const AiAssistantDrawer: React.FC = () => {
           'Container Load Plan Analysis: The 12 units of Space Capsule X7 require exactly 12 x 40ft High Cube containers. Freight estimate is snapshot at $4,000 USD/container.';
       } else if (userText.toLowerCase().includes('price') || userText.toLowerCase().includes('cost')) {
         responseText =
-          'For Quote QTE-2025-8819, the base price per unit is $59,800 USD including $16,800 total batch volume discount applied under DDP Los Angeles terms.';
+          'In demo mode, quote summaries are illustrative. Live pricing, discounts, freight, and commercial terms must come from the authenticated WUCHAN quote record.';
       }
 
       setMessages((prev) => [
