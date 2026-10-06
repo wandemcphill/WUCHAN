@@ -72,7 +72,9 @@ const quoteFinancialSchema = z.object({
   shipping: moneySchema,
   total: moneySchema,
   notes: z.string().max(2000).optional()
-}).superRefine((value, ctx) => {
+});
+
+function validateQuoteFinancials(value: z.infer<typeof quoteFinancialSchema>, ctx: z.RefinementCtx) {
   const currencies = [value.subtotal.currency, value.tax.currency, value.shipping.currency, value.total.currency];
   if (new Set(currencies).size !== 1) {
     ctx.addIssue({
@@ -91,15 +93,15 @@ const quoteFinancialSchema = z.object({
       message: 'Quote total must equal subtotal + tax + shipping'
     });
   }
-});
+}
 
 export const createQuoteVersionSchema = quoteFinancialSchema.extend({
   quoteId: z.string().uuid('Valid quote ID required')
-});
+}).superRefine(validateQuoteFinancials);
 
 export const createQuoteFromRfqSchema = quoteFinancialSchema.extend({
   rfqId: z.string().uuid('Valid RFQ ID required')
-});
+}).superRefine(validateQuoteFinancials);
 
 export const assignRfqSupplierSchema = z.object({
   supplierOrganizationId: z.string().uuid('Valid supplier organization ID required')
