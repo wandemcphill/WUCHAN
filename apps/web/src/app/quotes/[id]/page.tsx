@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Header } from '@/components/ui/Header';
 import { AiAssistantDrawer } from '@/components/ui/AiAssistantDrawer';
@@ -8,6 +8,7 @@ import { WorkspaceProvider, useWorkspace } from '@/lib/context';
 import { formatCurrency } from '@/lib/currency';
 import { StatusBadge, PermissionDeniedCard } from '@/components/ui/StateCards';
 import { MOCK_QUOTES } from '@/lib/adapters/mockData';
+import { fetchApi } from '@/lib/api-client';
 import {
   FileCheck2,
   CheckCircle2,
@@ -26,19 +27,104 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
   );
 }
 
+
+function normalizeLiveQuote(raw: any) {
+  const versions = Array.isArray(raw.versionHistory)
+    ? raw.versionHistory.map((v: any) => ({
+        versionNumber: v.version,
+        issuedAt: v.createdAt,
+        validUntil: v.validUntil,
+        lineItems: [],
+        subtotalUsd: v.subtotal,
+        seaFreightEstimateUsd: v.shipping,
+        customsInsuranceEstimateUsd: { amountCents: 0, currency: v.currency },
+        discountUsd: { amountCents: 0, currency: v.currency },
+        totalUsd: v.total,
+        incoterms: raw.incotermsRequested || 'FOB',
+        paymentTermsNote: v.notes || 'Commercial terms recorded on the authenticated WUCHAN quote.',
+        validityDays: Math.max(1, Math.ceil((new Date(v.validUntil).getTime() - new Date(v.createdAt).getTime()) / 86400000)),
+        sellerNotes: v.notes || 'No additional seller notes were provided.'
+      }))
+    : [];
+
+  const current = raw.currentVersion;
+  return {
+    id: raw.id,
+    quoteNumber: raw.quoteNumber,
+    rfqId: raw.rfqId,
+    rfqNumber: raw.rfqNumber,
+    projectName: raw.projectName || raw.rfqNumber || 'Commercial Quote',
+    organizationId: raw.organizationId,
+    status: raw.status,
+    acceptedAt: raw.acceptedAt,
+    purchaseOrderRef: raw.purchaseOrderRef,
+    currentVersion: versions.find((v: any) => v.versionNumber === raw.currentVersionNumber) || (current ? {
+      versionNumber: current.version,
+      issuedAt: current.createdAt,
+      validUntil: current.validUntil,
+      lineItems: [],
+      subtotalUsd: current.subtotal,
+      seaFreightEstimateUsd: current.shipping,
+      customsInsuranceEstimateUsd: { amountCents: 0, currency: current.currency },
+      discountUsd: { amountCents: 0, currency: current.currency },
+      totalUsd: current.total,
+      incoterms: raw.incotermsRequested || 'FOB',
+      paymentTermsNote: current.notes || 'Commercial terms recorded on the authenticated WUCHAN quote.',
+      validityDays: Math.max(1, Math.ceil((new Date(current.validUntil).getTime() - new Date(current.createdAt).getTime()) / 86400000)),
+      sellerNotes: current.notes || 'No additional seller notes were provided.'
+    } : null),
+    versionHistory: versions,
+  };
+}
+
 function QuoteDetailInner({ quoteId }: { quoteId: string }) {
-  const { currency, language, currentUser } = useWorkspace();
+  const { currency, language, currentUser, isAuthenticated } = useWorkspace();
   const langKey = language as 'en' | 'zh';
 
-  const quote = MOCK_QUOTES.find((q) => q.id === quoteId) || MOCK_QUOTES[0];
-  const version = quote.currentVersion;
-
-  const [poRef, setPoRef] = useState(quote.purchaseOrderRef || 'PO-HORIZON-2025-004');
-  const [isAccepted] = useState(quote.status === 'ACCEPTED');
+  const demoQuote = MOCK_QUOTES.find((q) => q.id === quoteId) || MOCK_QUOTES[0];
+  const [liveQuote, setLiveQuote] = useState<any | null>(null);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveError, setLiveError] = useState('');
+  const [accepting, setAccepting] = useState(false);
+  const [poRef, setPoRef] = useState(demoQuote.purchaseOrderRef || 'PO-HORIZON-2025-004');
   const [demoApprovalQueued, setDemoApprovalQueued] = useState(false);
   const [isAcceptModalOpen, setIsAcceptModalOpen] = useState(false);
 
-  const canApprove = currentUser.role === 'PROCUREMENT_LEAD' || currentUser.role === 'FINANCE_OFFICER';
+  useEffect(() => {
+    if (!isAuthenticated || !/^[0-9a-fA-F-]{36}$/.test(quoteId)) {
+      return;
+    }
+
+    let mounted = true;
+    setLiveLoading(true);
+    setLiveError('');
+
+    void fetchApi<any>('/quotes/' + quoteId)
+      .then((response) => {
+        if (!mounted || !response.data) return;
+        setLiveQuote(normalizeLiveQuote(response.data));
+        setPoRef(response.data.purchaseOrderRef || '');
+      })
+      .catch((err) => {
+        if (mounted) {
+          setLiveError(err instanceof Error ? err.message : 'Unable to load the authenticated quote.');
+        }
+      })
+      .finally(() => {
+        if (mounted) setLiveLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [isAuthenticated, quoteId]);
+
+  const quote = liveQuote || demoQuote;
+  const version = quote.currentVersion;
+  const isAccepted = quote.status === 'ACCEPTED';
+
+  const canApprove = ['PROCUREMENT_LEAD', 'FINANCE_OFFICER', 'CUSTOMER_BUYER', 'CUSTOMER_PROJECT_MANAGER', 'ORG_OWNER', 'ORG_ADMIN']
+    .includes(currentUser.role);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
@@ -107,7 +193,7 @@ function QuoteDetailInner({ quoteId }: { quoteId: string }) {
             </div>
 
             <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
-              <span className="text-[10px] text-slate-400 uppercase font-mono block">Sea Freight & Insurance ({version.incoterms})</span>
+              <span className="text-[10px] text-slate-400 uppercase font-mono block">Shipping / Logistics ({version.incoterms})</span>
               <strong className="text-blue-400 text-base block font-mono">
                 +{formatCurrency({ amountCents: version.seaFreightEstimateUsd.amountCents + version.customsInsuranceEstimateUsd.amountCents, currency: version.seaFreightEstimateUsd.currency }, currency)}
               </strong>
@@ -147,13 +233,11 @@ function QuoteDetailInner({ quoteId }: { quoteId: string }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {version.lineItems.map((item) => (
+                {version.lineItems.length > 0 ? version.lineItems.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-950/40">
                     <td className="p-3 space-y-1">
                       <strong className="text-slate-100 block">{item.productName[langKey]}</strong>
-                      <span className="text-[10px] text-slate-400 font-mono block">
-                        R-38 Polyisocyanurate Insulation + 6.4kW Roof Solar Package
-                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono block">{item.productSku}</span>
                     </td>
                     <td className="p-3 font-mono text-slate-200">{item.quantity} Units</td>
                     <td className="p-3 font-mono text-slate-200">{formatCurrency(item.unitPriceUsd, currency)}</td>
@@ -162,7 +246,13 @@ function QuoteDetailInner({ quoteId }: { quoteId: string }) {
                       {formatCurrency(item.totalPriceUsd, currency)}
                     </td>
                   </tr>
-                ))}
+                )) : (
+                  <tr>
+                    <td colSpan={5} className="p-6 text-center text-xs text-slate-500">
+                      Detailed line-item pricing is not exposed by this quote snapshot yet. No values are fabricated in the authenticated view.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -189,6 +279,18 @@ function QuoteDetailInner({ quoteId }: { quoteId: string }) {
             </p>
           </div>
         </div>
+
+        {liveLoading && (
+          <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-xs text-blue-200">
+            Loading the authenticated quote record…
+          </div>
+        )}
+
+        {liveError && (
+          <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-xs text-red-300">
+            {liveError}
+          </div>
+        )}
 
         {demoApprovalQueued && (
           <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-2xl border border-blue-500/30 bg-slate-900 p-4 text-xs text-blue-200 shadow-2xl">
@@ -231,7 +333,7 @@ function QuoteDetailInner({ quoteId }: { quoteId: string }) {
                   <div className="p-3 bg-amber-950/30 border border-amber-900/50 rounded-xl text-amber-300 space-y-1">
                     <strong className="block text-amber-200">Financial Commitment Disclaimer:</strong>
                     <p className="text-[11px] leading-relaxed">
-                      Demo mode only: no commercial order is created from this screen. Live acceptance must be confirmed by the WUCHAN API before any order or invoice is unlocked.
+                      Acceptance records the customer’s commercial approval. It does not fabricate an order or payment. The next controlled lifecycle stage is contract preparation.
                     </p>
                   </div>
 
@@ -243,13 +345,38 @@ function QuoteDetailInner({ quoteId }: { quoteId: string }) {
                       Cancel
                     </button>
                     <button
-                      onClick={() => {
-                        setDemoApprovalQueued(true);
-                        setIsAcceptModalOpen(false);
+                      disabled={accepting}
+                      onClick={async () => {
+                        if (!liveQuote) {
+                          setDemoApprovalQueued(true);
+                          setIsAcceptModalOpen(false);
+                          return;
+                        }
+
+                        setAccepting(true);
+                        setLiveError('');
+                        try {
+                          const response = await fetchApi<any>('/quotes/' + quoteId + '/approve', {
+                            method: 'POST',
+                            body: JSON.stringify({ purchaseOrderRef: poRef }),
+                          });
+
+                          setLiveQuote((previous: any) => previous ? {
+                            ...previous,
+                            status: response.data?.status || 'ACCEPTED',
+                            acceptedAt: response.data?.accepted_at || new Date().toISOString(),
+                            purchaseOrderRef: response.data?.purchase_order_ref || poRef,
+                          } : previous);
+                          setIsAcceptModalOpen(false);
+                        } catch (err) {
+                          setLiveError(err instanceof Error ? err.message : 'Unable to accept the quote.');
+                        } finally {
+                          setAccepting(false);
+                        }
                       }}
-                      className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/20 transition flex items-center gap-1.5"
+                      className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-lg shadow-emerald-600/20 transition flex items-center gap-1.5"
                     >
-                      Confirm Commercial Approval
+                      {accepting ? 'Confirming…' : 'Confirm Commercial Approval'}
                     </button>
                   </div>
                 </div>
