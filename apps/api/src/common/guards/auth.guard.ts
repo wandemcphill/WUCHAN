@@ -13,6 +13,7 @@ const ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
     Permission.CATALOG_READ, Permission.CATALOG_MANAGE,
     Permission.RFQ_READ, Permission.RFQ_MANAGE,
     Permission.QUOTE_READ, Permission.QUOTE_CREATE, Permission.QUOTE_APPROVE,
+    Permission.CONTRACT_READ, Permission.CONTRACT_CREATE, Permission.CONTRACT_SIGN, Permission.CONTRACT_MANAGE,
     Permission.ORDER_READ, Permission.ORDER_MANAGE, Permission.ORDER_STATE_UPDATE,
     Permission.PAYMENT_READ, Permission.INVOICE_READ, Permission.INVENTORY_READ, Permission.INVENTORY_MANAGE,
     Permission.PRODUCTION_READ, Permission.PRODUCTION_MANAGE, Permission.QUALITY_READ, Permission.QUALITY_INSPECT,
@@ -22,6 +23,7 @@ const ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
   [RoleName.FACTORY_MANAGER]: [
     Permission.CATALOG_READ, Permission.CATALOG_MANAGE,
     Permission.RFQ_READ, Permission.QUOTE_READ, Permission.QUOTE_CREATE, Permission.QUOTE_MANAGE,
+    Permission.CONTRACT_READ, Permission.CONTRACT_CREATE, Permission.CONTRACT_SIGN, Permission.CONTRACT_MANAGE,
     Permission.ORDER_READ, Permission.ORDER_STATE_UPDATE,
     Permission.INVENTORY_READ, Permission.INVENTORY_MANAGE, Permission.PRODUCTION_READ, Permission.PRODUCTION_MANAGE,
     Permission.QUALITY_READ, Permission.QUALITY_INSPECT, Permission.SHIPPING_READ, Permission.SHIPPING_MANAGE,
