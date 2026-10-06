@@ -3,13 +3,31 @@ export interface UserSession {
   email: string;
   orgId?: string;
   role?: string;
+  permissions?: string[];
 }
 
-export function getClientSession(): UserSession | null {
-  return {
-    userId: '00000000-0000-0000-0000-000000000001',
-    email: 'dev@wuchan.com',
-    orgId: '11111111-1111-1111-1111-111111111111',
-    role: 'ORG_OWNER'
-  };
+export async function getClientSession(): Promise<UserSession | null> {
+  try {
+    const response = await fetch('/api/auth/session', {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'include',
+    });
+
+    if (!response.ok) return null;
+
+    const payload = await response.json();
+    const user = payload?.data?.user;
+    if (!payload?.success || !user?.userId) return null;
+
+    return {
+      userId: user.userId,
+      email: user.email,
+      orgId: user.activeOrgId,
+      role: user.activeRole,
+      permissions: user.permissions,
+    };
+  } catch {
+    return null;
+  }
 }
