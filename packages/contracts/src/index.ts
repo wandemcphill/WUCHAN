@@ -176,7 +176,7 @@ export interface RFQItem {
   productName: { en: string; zh: string };
   configuration: ProductConfiguration;
   quantity: number;
-  unitTargetPriceUsd?: number;
+  unitTargetPriceUsd?: Money;
   notes?: string;
 }
 
@@ -287,7 +287,7 @@ export interface Invoice {
   stageTitle: string;
   amountUsd: Money;
   currency: Currency;
-  convertedAmount: number;
+  convertedAmount: Money;
   issuedDate: string;
   dueDate: string;
   status: 'ISSUED' | 'RECEIPT_UNDER_VERIFICATION' | 'PAID' | 'OVERDUE';
