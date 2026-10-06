@@ -47,7 +47,7 @@ describe('Cross-Tenant Security & Business Boundary Tests', () => {
       })
     } as any;
 
-    (jwt.verify as jest.Mock).mockReturnValue({ sub: 'user_123', email: 'user@a.com' });
+    (jwt.verify as jest.Mock).mockReturnValue({ sub: '00000000-0000-0000-0000-000000000003', email: 'user@a.com' });
 
     await expect(authGuard.canActivate(context)).rejects.toThrow(ForbiddenException);
   });
