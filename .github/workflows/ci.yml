@@ -1,0 +1,42 @@
+name: WUCHAN Platform Foundation CI
+
+on:
+  push:
+    branches: [ main, 'jules/**' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  ci:
+    name: Typecheck, Lint, Test & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck workspace
+        run: pnpm run typecheck
+
+      - name: Run tests
+        run: pnpm run test
+
+      - name: Verify database migrations
+        run: pnpm run db:verify
+
+      - name: Build applications and packages
+        run: pnpm run build
