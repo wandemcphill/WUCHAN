@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Header } from '@/components/ui/Header';
 import { AiAssistantDrawer } from '@/components/ui/AiAssistantDrawer';
 import { WorkspaceProvider, useWorkspace } from '@/lib/context';
+import { fetchApi } from '@/lib/api-client';
 import { formatCurrency } from '@/lib/currency';
 import { MOCK_PRODUCTS, MOCK_PROJECTS } from '@/lib/adapters/mockData';
 import { Incoterm } from '@wuchan/contracts';
@@ -16,7 +17,7 @@ import {
 } from 'lucide-react';
 
 function NewRfqContent() {
-  const { currency, language } = useWorkspace();
+  const { currency, language, organization, isAuthenticated, sessionLoading } = useWorkspace();
   const langKey = language as 'en' | 'zh';
 
   const [selectedProductId, setSelectedProductId] = useState(MOCK_PRODUCTS[0].id);
@@ -28,6 +29,9 @@ function NewRfqContent() {
     'Must comply with California Title 24 energy standards and Monterey County 180 km/h wind load anchoring.'
   );
   const [files] = useState<string[]>(['Big_Sur_Site_Plan_Approved.pdf']);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [submittedRfqId, setSubmittedRfqId] = useState<string | null>(null);
 
   const selectedProduct = MOCK_PRODUCTS.find((p) => p.id === selectedProductId) || MOCK_PRODUCTS[0];
   const selectedProject = MOCK_PROJECTS.find((p) => p.id === selectedProjectId) || MOCK_PROJECTS[0];
@@ -52,9 +56,72 @@ function NewRfqContent() {
         </div>
 
         <form
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            window.location.href = '/rfqs/rfq_2025_001';
+            setError('');
+            setSubmittedRfqId(null);
+
+            if (sessionLoading) {
+              setError('Checking your workspace session. Please try again in a moment.');
+              return;
+            }
+            if (!isAuthenticated) {
+              setError('Sign in to submit an RFQ. The preview data on this page is not a live customer organization.');
+              return;
+            }
+            if (!organization.id) {
+              setError('No authenticated organization is available for this workspace.');
+              return;
+            }
+
+            setSubmitting(true);
+            try {
+              const deliveryTarget = deliveryDate
+                ? new Date(deliveryDate + 'T00:00:00.000Z').toISOString()
+                : undefined;
+              const projectIsUuid = /^[0-9a-fA-F-]{36}$/.test(selectedProjectId);
+
+              const response = await fetchApi<any>('/rfq', {
+                method: 'POST',
+                body: JSON.stringify({
+                  organizationId: organization.id,
+                  ...(projectIsUuid ? { projectId: selectedProjectId } : {}),
+                  title: selectedProject.name + ' procurement RFQ',
+                  description:
+                    'Prefab RFQ for ' +
+                    quantity +
+                    ' unit(s) of ' +
+                    selectedProduct.sku +
+                    '. ' +
+                    notes,
+                  budget: {
+                    amountCents: estimatedSubtotal.amountCents,
+                    currency: estimatedSubtotal.currency,
+                  },
+                  targetDeliveryDate: deliveryTarget,
+                  destinationPort: selectedProject.site.destinationPort,
+                  incotermsRequested: incoterms,
+                  items: [{
+                    productSku: selectedProduct.sku,
+                    quantity,
+                    configuration: {
+                      productId: selectedProduct.id,
+                      selectedOptions: [],
+                    },
+                  }],
+                }),
+              });
+
+              if (!response.data?.id) {
+                throw new Error('The RFQ was not returned by the server after submission.');
+              }
+
+              setSubmittedRfqId(response.data.id);
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Unable to submit the RFQ.');
+            } finally {
+              setSubmitting(false);
+            }
           }}
           className="space-y-6"
         >
@@ -199,13 +266,26 @@ function NewRfqContent() {
               </span>
             </div>
 
-            <button
-              type="submit"
-              className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/20 transition flex items-center justify-center gap-2 text-xs"
-            >
-              <FileCheck2 className="w-4 h-4" />
-              Submit Official RFQ to Factory
-            </button>
+            <div className="flex flex-col items-stretch gap-3 sm:items-end">
+              {error && (
+                <div className="max-w-sm rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-[11px] leading-5 text-red-300">
+                  {error}
+                </div>
+              )}
+              {submittedRfqId && (
+                <div className="max-w-sm rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-[11px] leading-5 text-emerald-300">
+                  RFQ submitted successfully. Server record: <span className="font-mono">{submittedRfqId}</span>
+                </div>
+              )}
+              <button
+                type="submit"
+                disabled={submitting || sessionLoading}
+                className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-lg shadow-emerald-600/20 transition flex items-center justify-center gap-2 text-xs"
+              >
+                <FileCheck2 className="w-4 h-4" />
+                {submitting ? 'Submitting RFQ…' : 'Submit Official RFQ to Factory'}
+              </button>
+            </div>
           </div>
         </form>
       </main>
