@@ -1,0 +1,25 @@
+{
+  "name": "wuchan-monorepo",
+  "private": true,
+  "scripts": {
+    "build": "pnpm -r --filter \"!wuchan-monorepo\" build",
+    "lint": "eslint \"**/*.{ts,tsx}\"",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r --filter \"!wuchan-monorepo\" run test",
+    "db:verify": "node scripts/verify-migrations.js"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.11.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "pnpm@10.18.3"
+}
