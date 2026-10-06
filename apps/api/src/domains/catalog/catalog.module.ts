@@ -32,7 +32,7 @@ export class CatalogController {
       return res.rows;
     }
 
-    const res = await this.db.query(
+    const res = await this.db.queryPublic(
       `SELECT id, organization_id, name, sku, description, is_public, base_price_cents, currency, lead_time_days
        FROM public.products
        WHERE is_public = TRUE
@@ -55,7 +55,7 @@ export class CatalogController {
       return res.rows[0] || null;
     }
 
-    const res = await this.db.query(
+    const res = await this.db.queryPublic(
       `SELECT id, organization_id, name, sku, description, is_public, base_price_cents, currency, lead_time_days
        FROM public.products WHERE id = $1 AND is_public = TRUE`,
       [id]
@@ -74,33 +74,35 @@ export class CatalogController {
       throw new ForbiddenException('Product organization must match the authenticated organization');
     }
 
-    const res = await this.db.query(
-      `INSERT INTO public.products (organization_id, name, sku, description, is_public, base_price_cents, currency, lead_time_days)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, organization_id, name, sku, description, is_public, base_price_cents, currency, lead_time_days, created_at`,
-      [
-        validated.organizationId,
-        validated.name,
-        validated.sku,
-        validated.description || null,
-        validated.isPublic !== undefined ? validated.isPublic : true,
-        validated.basePrice.amountCents,
-        validated.basePrice.currency,
-        validated.leadTimeDays
-      ],
-      actorId
-    );
-    const prod = res.rows[0];
+    return this.db.withTransaction(async (client) => {
+      const res = await client.query(
+        `INSERT INTO public.products (organization_id, name, sku, description, is_public, base_price_cents, currency, lead_time_days)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id, organization_id, name, sku, description, is_public, base_price_cents, currency, lead_time_days, created_at`,
+        [
+          validated.organizationId,
+          validated.name,
+          validated.sku,
+          validated.description || null,
+          validated.isPublic !== undefined ? validated.isPublic : true,
+          validated.basePrice.amountCents,
+          validated.basePrice.currency,
+          validated.leadTimeDays
+        ]
+      );
+      const prod = res.rows[0];
 
-    await this.auditService.logAction({
-      domain: Domain.CATALOG,
-      action: 'PRODUCT_CREATED',
-      actorId,
-      organizationId: prod.organization_id,
-      afterState: prod
-    });
+      await this.auditService.logActionInTransaction({
+        domain: Domain.CATALOG,
+        action: 'PRODUCT_CREATED',
+        actorId,
+        organizationId: prod.organization_id,
+        resourceId: prod.id,
+        afterState: prod
+      }, client);
 
-    return prod;
+      return prod;
+    }, actorId);
   }
 }
 
