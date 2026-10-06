@@ -5,11 +5,10 @@ export interface UserSession {
   role?: string;
 }
 
+/**
+ * Production authentication is not inferred from client-side state.
+ * Return null until the Supabase Auth session is wired to the API.
+ */
 export function getClientSession(): UserSession | null {
-  return {
-    userId: '00000000-0000-0000-0000-000000000001',
-    email: 'dev@wuchan.com',
-    orgId: '11111111-1111-1111-1111-111111111111',
-    role: 'ORG_OWNER'
-  };
+  return null;
 }
