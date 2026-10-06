@@ -140,7 +140,19 @@ CREATE POLICY "organization_members_select"
 
 CREATE POLICY "organization_members_insert"
   ON public.organization_members FOR INSERT
-  WITH CHECK (public.is_org_admin(organization_id) OR public.is_platform_admin());
+  WITH CHECK (
+    public.is_org_admin(organization_id)
+    OR public.is_platform_admin()
+    OR (
+      user_id = public.current_actor_id()
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.organization_members existing
+        WHERE existing.organization_id = organization_members.organization_id
+      )
+      AND role = 'ORG_OWNER'
+    )
+  );
 
 CREATE POLICY "organization_members_update"
   ON public.organization_members FOR UPDATE
