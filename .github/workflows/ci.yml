@@ -1,4 +1,5 @@
 name: WUCHAN Platform Foundation CI
+# CI verification trigger for release-candidate infrastructure.
 
 on:
   push:
