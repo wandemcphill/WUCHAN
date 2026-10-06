@@ -4,6 +4,7 @@ import { OrganizationsModule } from './domains/organizations/organizations.modul
 import { CatalogModule } from './domains/catalog/catalog.module';
 import { CommercialModule } from './domains/commercial/commercial.module';
 import { OperationsModule } from './domains/operations/operations.module';
+import { ContractsModule } from './domains/contracts/contracts.module';
 
 @Module({
   imports: [
@@ -11,6 +12,7 @@ import { OperationsModule } from './domains/operations/operations.module';
     OrganizationsModule,
     CatalogModule,
     CommercialModule,
+    ContractsModule,
     OperationsModule
   ]
 })
