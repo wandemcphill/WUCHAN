@@ -42,12 +42,27 @@ export const createProductSchema = z.object({
 });
 
 /** RFQ & Quote Validation Schemas */
+const rfqItemSchema = z.object({
+  productId: z.string().uuid().optional(),
+  productSku: z.string().min(2).max(100).optional(),
+  quantity: z.number().int().positive().max(10000),
+  configuration: z.record(z.any()).optional(),
+  notes: z.string().max(2000).optional(),
+  targetUnitPrice: moneySchema.optional()
+}).refine((item) => Boolean(item.productId || item.productSku), {
+  message: 'Each RFQ item requires productId or productSku'
+});
+
 export const createRfqSchema = z.object({
   organizationId: z.string().uuid(),
+  projectId: z.string().uuid().optional(),
   title: z.string().min(3).max(200),
   description: z.string().min(10).max(5000),
   budget: moneySchema.optional(),
-  targetDeliveryDate: z.string().datetime().optional()
+  targetDeliveryDate: z.string().datetime().optional(),
+  destinationPort: z.string().min(2).max(200),
+  incotermsRequested: z.enum(['FOB', 'CIF', 'DDP']),
+  items: z.array(rfqItemSchema).min(1).max(100)
 });
 
 export const createQuoteVersionSchema = z.object({
