@@ -251,6 +251,78 @@ export class QuotesController {
     return res.rows;
   }
 
+  @Get(':id')
+  @RequirePermissions(Permission.QUOTE_READ)
+  async getById(@Req() req: any, @Param('id') id: string) {
+    if (!/^[0-9a-fA-F-]{36}$/.test(id)) {
+      throw new BadRequestException('Invalid quote id');
+    }
+
+    const quoteRes = await this.db.query(
+      `SELECT
+         q.*,
+         r.rfq_number,
+         r.title AS rfq_title,
+         r.incoterms_requested,
+         customer.name AS customer_name,
+         seller.name AS seller_name
+       FROM public.quotes q
+       JOIN public.rfqs r ON r.id = q.rfq_id
+       JOIN public.organizations customer ON customer.id = q.organization_id
+       LEFT JOIN public.organizations seller ON seller.id = q.seller_organization_id
+       WHERE q.id = $1`,
+      [id],
+      req.user.userId
+    );
+    const quote = quoteRes.rows[0];
+    if (!quote) {
+      throw new NotFoundException('Quote ' + id + ' not found');
+    }
+
+    const versionsRes = await this.db.query(
+      `SELECT id, quote_id, version, subtotal_cents, tax_cents, shipping_cents, total_cents, currency, valid_until, notes, created_at
+       FROM public.quote_versions
+       WHERE quote_id = $1
+       ORDER BY version ASC`,
+      [id],
+      req.user.userId
+    );
+
+    const versions = versionsRes.rows.map((row: any) => ({
+      id: row.id,
+      quoteId: row.quote_id,
+      version: row.version,
+      subtotal: { amountCents: Number(row.subtotal_cents), currency: row.currency },
+      tax: { amountCents: Number(row.tax_cents), currency: row.currency },
+      shipping: { amountCents: Number(row.shipping_cents), currency: row.currency },
+      total: { amountCents: Number(row.total_cents), currency: row.currency },
+      validUntil: row.valid_until,
+      notes: row.notes,
+      createdAt: row.created_at
+    }));
+
+    const currentVersion = versions.find((version: any) => version.version === quote.current_version) || versions[versions.length - 1] || null;
+
+    return {
+      id: quote.id,
+      quoteNumber: quote.quote_number,
+      rfqId: quote.rfq_id,
+      rfqNumber: quote.rfq_number,
+      projectName: quote.rfq_title,
+      organizationId: quote.organization_id,
+      customerName: quote.customer_name,
+      sellerOrganizationId: quote.seller_organization_id,
+      sellerName: quote.seller_name,
+      status: quote.status,
+      acceptedAt: quote.accepted_at,
+      acceptedByUserId: quote.accepted_by,
+      purchaseOrderRef: quote.purchase_order_ref,
+      currentVersionNumber: quote.current_version,
+      currentVersion,
+      versionHistory: versions
+    };
+  }
+
   @Post('from-rfq')
   @RequirePermissions(Permission.QUOTE_CREATE)
   async createFromRfq(@Req() req: any, @Body() body: any) {
@@ -412,12 +484,14 @@ export class QuotesController {
 
   @Post(':id/approve')
   @RequirePermissions(Permission.QUOTE_APPROVE)
-  async approve(@Req() req: any, @Param('id') id: string) {
+  async approve(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    const validated = approveQuoteSchema.parse(body);
     const actorId = req.user.userId;
 
     return this.db.withTransaction(async (client) => {
       const quoteRes = await client.query(
         `SELECT q.id, q.organization_id, q.status, q.current_version,
+                q.seller_organization_id, q.quote_number, q.purchase_order_ref,
                 qv.valid_until
          FROM public.quotes q
          LEFT JOIN public.quote_versions qv
@@ -429,26 +503,43 @@ export class QuotesController {
       const quote = quoteRes.rows[0];
 
       if (!quote) {
-        throw new NotFoundException(`Quote ${id} not found`);
+        throw new NotFoundException('Quote ' + id + ' not found');
       }
-      if (req.user.activeOrgId && quote.organization_id !== req.user.activeOrgId && req.user.activeRole !== 'PLATFORM_ADMIN') {
-        throw new ForbiddenException('Quote belongs to a different organization');
+
+      if (
+        req.user.activeRole !== 'PLATFORM_ADMIN' &&
+        quote.organization_id !== req.user.activeOrgId
+      ) {
+        throw new ForbiddenException('Only the customer organization may accept this quote');
       }
+
+      if (
+        !['PLATFORM_ADMIN', 'ORG_OWNER', 'ORG_ADMIN', 'CUSTOMER_BUYER', 'CUSTOMER_PROJECT_MANAGER']
+          .includes(req.user.activeRole)
+      ) {
+        throw new ForbiddenException('The authenticated role cannot accept commercial quotes');
+      }
+
       if (!quote.valid_until || new Date(quote.valid_until).getTime() < Date.now()) {
         throw new BadRequestException('Quote has expired');
       }
+
       if (['ACCEPTED', 'DECLINED', 'EXPIRED', 'SUPERSEDED'].includes(quote.status)) {
-        throw new BadRequestException(`Quote cannot be accepted from status ${quote.status}`);
+        throw new BadRequestException('Quote cannot be accepted from status ' + quote.status);
       }
 
-      const res = await client.query(
+      const updatedRes = await client.query(
         `UPDATE public.quotes
-         SET status = 'ACCEPTED', updated_at = NOW()
+         SET status = 'ACCEPTED',
+             accepted_at = NOW(),
+             accepted_by = $2,
+             purchase_order_ref = $3,
+             updated_at = NOW()
          WHERE id = $1
          RETURNING *`,
-        [id]
+        [id, actorId, validated.purchaseOrderRef]
       );
-      const approved = res.rows[0];
+      const updated = updatedRes.rows[0];
 
       await this.auditService.logActionInTransaction({
         domain: Domain.QUOTES,
@@ -457,10 +548,10 @@ export class QuotesController {
         organizationId: quote.organization_id,
         resourceId: id,
         beforeState: quote,
-        afterState: approved
+        afterState: updated
       }, client);
 
-      return approved;
+      return updated;
     }, actorId);
   }
 }

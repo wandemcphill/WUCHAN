@@ -107,6 +107,10 @@ export const assignRfqSupplierSchema = z.object({
   supplierOrganizationId: z.string().uuid('Valid supplier organization ID required')
 });
 
+export const approveQuoteSchema = z.object({
+  purchaseOrderRef: z.string().trim().min(2).max(100)
+});
+
 /** Order Validation Schema */
 export const updateOrderStatusSchema = z.object({
   orderId: z.string().uuid(),
