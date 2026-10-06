@@ -1,17 +1,18 @@
-import { describe, it, expect } from 'vitest';
 import { formatCurrency, CURRENCY_RATES } from '../lib/currency';
 import { getTranslation } from '../lib/i18n';
 import { MOCK_PRODUCTS, MOCK_QUOTES } from '../lib/adapters/mockData';
 
 describe('B2B Currency Formatter', () => {
-  it('formats USD correctly with thousand separators', () => {
-    expect(formatCurrency(48500, 'USD')).toBe('$48,500');
+  it('formats USD correctly with minor-unit precision', () => {
+    expect(formatCurrency(48500, 'USD')).toBe('$48,500.00');
   });
 
-  it('converts USD to EUR correctly using exchange rate', () => {
+  it('converts USD to EUR correctly using the configured rate', () => {
     const amount = { amountCents: 1000000, currency: 'USD' as const };
     const expectedEur = (amount.amountCents / 100) * CURRENCY_RATES.EUR.rateToUsd;
-    expect(formatCurrency(amount, 'EUR')).toBe(`€${expectedEur.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+    expect(formatCurrency(amount, 'EUR')).toBe(
+      `€${expectedEur.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    );
   });
 });
 
@@ -30,25 +31,25 @@ describe('i18n Translation Adapter', () => {
 describe('Configurator Math Calculations', () => {
   it('calculates total price, weight, CBM, and lead time deltas accurately', () => {
     const product = MOCK_PRODUCTS[0];
-    let priceDelta = 0;
+    let priceDeltaCents = 0;
     let weightDelta = 0;
     let cbmDelta = 0;
     let leadDelta = 0;
 
     product.optionGroups.forEach((grp) => {
       const nonDefault = grp.values.find((v) => !v.isDefault) || grp.values[0];
-      priceDelta += nonDefault.priceDeltaUsd;
+      priceDeltaCents += nonDefault.priceDeltaUsd.amountCents;
       weightDelta += nonDefault.weightDeltaKg;
       cbmDelta += nonDefault.cbmDelta;
       leadDelta += nonDefault.leadTimeDeltaDays;
     });
 
-    const calculatedPrice = product.basePriceUsd + priceDelta;
+    const calculatedPriceCents = product.basePriceUsd.amountCents + priceDeltaCents;
     const calculatedWeight = product.physicalProfile.weightKg + weightDelta;
     const calculatedCbm = product.physicalProfile.shippingVolumeCbm + cbmDelta;
     const calculatedLead = product.baseLeadTimeDays + leadDelta;
 
-    expect(calculatedPrice).toBeGreaterThan(product.basePriceUsd);
+    expect(calculatedPriceCents).toBeGreaterThan(product.basePriceUsd.amountCents);
     expect(calculatedWeight).toBeGreaterThan(product.physicalProfile.weightKg);
     expect(calculatedCbm).toBeGreaterThanOrEqual(product.physicalProfile.shippingVolumeCbm);
     expect(calculatedLead).toBeGreaterThanOrEqual(product.baseLeadTimeDays);
@@ -61,8 +62,8 @@ describe('Quote Version Comparison Matrix', () => {
     const v1 = quote.versionHistory[0];
     const v2 = quote.versionHistory[1] || quote.currentVersion;
 
-    const delta = v2.totalUsd - v1.totalUsd;
-    expect(delta).toBeLessThan(0);
-    expect(Math.abs(delta)).toBe(36800);
+    const deltaCents = v2.totalUsd.amountCents - v1.totalUsd.amountCents;
+    expect(deltaCents).toBeLessThan(0);
+    expect(Math.abs(deltaCents)).toBe(36800 * 100);
   });
 });
