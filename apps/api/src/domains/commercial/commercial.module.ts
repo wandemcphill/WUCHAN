@@ -173,12 +173,15 @@ export class RfqController {
         });
       }
 
+      const rfqNumber = 'RFQ-' + new Date().getUTCFullYear() + '-' + randomUUID().slice(0, 8).toUpperCase();
+
       const rfqRes = await client.query(
         \`INSERT INTO public.rfqs
-          (organization_id, project_id, title, description, target_delivery_date, budget_cents, currency, status, destination_port, incoterms_requested)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'SUBMITTED', $8, $9)
+          (rfq_number, organization_id, project_id, title, description, target_delivery_date, budget_cents, currency, status, destination_port, incoterms_requested)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'SUBMITTED', $9, $10)
          RETURNING *\`,
         [
+          rfqNumber,
           validated.organizationId,
           validated.projectId || null,
           validated.title,
@@ -344,7 +347,7 @@ export class QuotesController {
 
     return this.db.withTransaction(async (client) => {
       const quoteRes = await client.query(
-        `SELECT id, current_version, organization_id, rfq_id, status
+        `SELECT id, current_version, organization_id, seller_organization_id, rfq_id, status
          FROM public.quotes
          WHERE id = $1
          FOR UPDATE`,
