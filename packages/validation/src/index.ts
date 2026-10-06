@@ -111,6 +111,17 @@ export const approveQuoteSchema = z.object({
   purchaseOrderRef: z.string().trim().min(2).max(100)
 });
 
+export const createContractFromQuoteSchema = z.object({
+  quoteId: z.string().uuid('Valid quote ID required'),
+  termsText: z.string().trim().min(100).max(50000)
+});
+
+export const signContractSchema = z.object({
+  acknowledged: z.literal(true, {
+    errorMap: () => ({ message: 'Explicit contract acknowledgement is required' })
+  })
+});
+
 /** Order Validation Schema */
 export const updateOrderStatusSchema = z.object({
   orderId: z.string().uuid(),
