@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS public.quotes (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   rfq_id UUID NOT NULL REFERENCES public.rfqs(id) ON DELETE CASCADE,
   organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
-  current_version INT NOT NULL DEFAULT 1,
+  current_version INT NOT NULL DEFAULT 0,
   status VARCHAR(50) NOT NULL DEFAULT 'DRAFT',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -194,7 +194,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
   currency currency_code NOT NULL DEFAULT 'USD',
   payment_method VARCHAR(100) NOT NULL,
   idempotency_key VARCHAR(255) UNIQUE,
-  status VARCHAR(50) NOT NULL DEFAULT 'COMPLETED',
+  status VARCHAR(50) NOT NULL DEFAULT 'PENDING_VERIFICATION',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
