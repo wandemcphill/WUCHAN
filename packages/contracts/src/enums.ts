@@ -57,6 +57,12 @@ export enum Permission {
   QUOTE_APPROVE = 'quotes:approve',
   QUOTE_MANAGE = 'quotes:manage',
 
+  // Contracts
+  CONTRACT_READ = 'contracts:read',
+  CONTRACT_CREATE = 'contracts:create',
+  CONTRACT_SIGN = 'contracts:sign',
+  CONTRACT_MANAGE = 'contracts:manage',
+
   // Orders
   ORDER_READ = 'orders:read',
   ORDER_CREATE = 'orders:create',
