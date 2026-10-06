@@ -2,10 +2,6 @@ import { Currency, RoleName, Permission, OrderStatus, OrgType, Money } from './e
 
 export { Currency, RoleName, Permission, OrderStatus, OrgType, Money };
 
-import { Currency, RoleName, Permission, OrderStatus, OrgType, Money } from './enums.js';
-
-export { Currency, RoleName, Permission, OrderStatus, OrgType, Money };
-
 export type Language = 'en' | 'zh';
 
 /**
