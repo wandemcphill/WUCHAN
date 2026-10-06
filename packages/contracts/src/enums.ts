@@ -4,6 +4,7 @@ export enum Domain {
   CATALOG = 'catalog',
   RFQ = 'rfq',
   QUOTES = 'quotes',
+  CONTRACTS = 'contracts',
   ORDERS = 'orders',
   PAYMENTS = 'payments',
   INVOICING = 'invoicing',
