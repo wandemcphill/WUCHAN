@@ -38,21 +38,93 @@ export class RfqController {
     }
 
     return this.db.withTransaction(async (client) => {
-      const res = await client.query(
-        `INSERT INTO public.rfqs
-          (organization_id, title, description, budget_cents, currency, target_delivery_date)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING *`,
+      if (validated.projectId) {
+        const projectRes = await client.query(
+          'SELECT id FROM public.projects WHERE id = $1 AND organization_id = $2',
+          [validated.projectId, validated.organizationId]
+        );
+        if (!projectRes.rows[0]) {
+          throw new BadRequestException('Project does not belong to the authenticated organization');
+        }
+      }
+
+      const resolvedItems: Array<{
+        productId: string;
+        quantity: number;
+        configuration: Record<string, any>;
+        notes?: string;
+        targetUnitPrice?: { amountCents: number; currency: string };
+      }> = [];
+
+      for (const item of validated.items) {
+        const productRes = await client.query(
+          item.productId
+            ? 'SELECT id, sku, organization_id, is_public FROM public.products WHERE id = $1'
+            : 'SELECT id, sku, organization_id, is_public FROM public.products WHERE sku = $1',
+          [item.productId || item.productSku]
+        );
+        const product = productRes.rows[0];
+
+        if (!product) {
+          throw new NotFoundException(
+            item.productId
+              ? 'Product ' + item.productId + ' not found'
+              : 'Product SKU ' + item.productSku + ' not found'
+          );
+        }
+
+        if (!product.is_public && product.organization_id !== activeOrgId && req.user.activeRole !== 'PLATFORM_ADMIN') {
+          throw new ForbiddenException('RFQ may only request public products outside the authenticated organization');
+        }
+
+        if (item.targetUnitPrice && validated.budget && item.targetUnitPrice.currency !== validated.budget.currency) {
+          throw new BadRequestException('RFQ item target price currency must match the RFQ budget currency');
+        }
+
+        resolvedItems.push({
+          productId: product.id,
+          quantity: item.quantity,
+          configuration: item.configuration || {},
+          notes: item.notes,
+          targetUnitPrice: item.targetUnitPrice,
+        });
+      }
+
+      const rfqRes = await client.query(
+        \`INSERT INTO public.rfqs
+          (organization_id, project_id, title, description, target_delivery_date, budget_cents, currency, status, destination_port, incoterms_requested)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'SUBMITTED', $8, $9)
+         RETURNING *\`,
         [
           validated.organizationId,
+          validated.projectId || null,
           validated.title,
           validated.description,
+          validated.targetDeliveryDate || null,
           validated.budget?.amountCents ?? null,
           validated.budget?.currency ?? 'USD',
-          validated.targetDeliveryDate ?? null
+          validated.destinationPort,
+          validated.incotermsRequested
         ]
       );
-      const rfq = res.rows[0];
+      const rfq = rfqRes.rows[0];
+
+      for (const item of resolvedItems) {
+        await client.query(
+          \`INSERT INTO public.rfq_items
+            (rfq_id, product_id, quantity, configuration, notes, target_unit_price_cents, currency)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)\`,
+          [
+            rfq.id,
+            item.productId,
+            item.quantity,
+            JSON.stringify(item.configuration),
+            item.notes || null,
+            item.targetUnitPrice?.amountCents ?? null,
+            item.targetUnitPrice?.currency || validated.budget?.currency || 'USD'
+          ]
+        );
+      }
 
       await this.auditService.logActionInTransaction({
         domain: Domain.RFQ,
@@ -60,10 +132,16 @@ export class RfqController {
         actorId,
         organizationId: rfq.organization_id,
         resourceId: rfq.id,
-        afterState: rfq
+        afterState: {
+          ...rfq,
+          items: resolvedItems
+        }
       }, client);
 
-      return rfq;
+      return {
+        ...rfq,
+        items: resolvedItems
+      };
     }, actorId);
   }
 }
