@@ -20,7 +20,9 @@ const ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
     Permission.MESSAGING_READ, Permission.MESSAGING_SEND, Permission.NOTIFICATIONS_READ, Permission.AUDIT_READ
   ],
   [RoleName.FACTORY_MANAGER]: [
-    Permission.CATALOG_READ, Permission.CATALOG_MANAGE, Permission.ORDER_READ, Permission.ORDER_STATE_UPDATE,
+    Permission.CATALOG_READ, Permission.CATALOG_MANAGE,
+    Permission.RFQ_READ, Permission.QUOTE_READ, Permission.QUOTE_CREATE, Permission.QUOTE_MANAGE,
+    Permission.ORDER_READ, Permission.ORDER_STATE_UPDATE,
     Permission.INVENTORY_READ, Permission.INVENTORY_MANAGE, Permission.PRODUCTION_READ, Permission.PRODUCTION_MANAGE,
     Permission.QUALITY_READ, Permission.QUALITY_INSPECT, Permission.SHIPPING_READ, Permission.SHIPPING_MANAGE,
     Permission.DOCUMENTS_READ, Permission.DOCUMENTS_MANAGE, Permission.MESSAGING_READ, Permission.MESSAGING_SEND, Permission.NOTIFICATIONS_READ

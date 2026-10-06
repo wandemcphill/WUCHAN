@@ -65,14 +65,44 @@ export const createRfqSchema = z.object({
   items: z.array(rfqItemSchema).min(1).max(100)
 });
 
-export const createQuoteVersionSchema = z.object({
-  quoteId: z.string().uuid('Valid quote ID required'),
+const quoteFinancialSchema = z.object({
   validUntil: z.string().datetime(),
   subtotal: moneySchema,
   tax: moneySchema,
   shipping: moneySchema,
   total: moneySchema,
   notes: z.string().max(2000).optional()
+}).superRefine((value, ctx) => {
+  const currencies = [value.subtotal.currency, value.tax.currency, value.shipping.currency, value.total.currency];
+  if (new Set(currencies).size !== 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['currency'],
+      message: 'All quote financial values must use the same currency'
+    });
+    return;
+  }
+
+  const expectedTotal = value.subtotal.amountCents + value.tax.amountCents + value.shipping.amountCents;
+  if (value.total.amountCents !== expectedTotal) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['total', 'amountCents'],
+      message: 'Quote total must equal subtotal + tax + shipping'
+    });
+  }
+});
+
+export const createQuoteVersionSchema = quoteFinancialSchema.extend({
+  quoteId: z.string().uuid('Valid quote ID required')
+});
+
+export const createQuoteFromRfqSchema = quoteFinancialSchema.extend({
+  rfqId: z.string().uuid('Valid RFQ ID required')
+});
+
+export const assignRfqSupplierSchema = z.object({
+  supplierOrganizationId: z.string().uuid('Valid supplier organization ID required')
 });
 
 /** Order Validation Schema */

@@ -1,9 +1,19 @@
-import { Module, Controller, Get, Post, Body, UseGuards, Param, Patch, Req, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Module, Controller, Get, Post, Body, UseGuards, Param, Patch, Req,
+  BadRequestException, NotFoundException, ForbiddenException, ConflictException
+} from '@nestjs/common';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { Permission, Domain, isValidOrderStatusTransition } from '@wuchan/contracts';
-import { createRfqSchema, createQuoteVersionSchema, updateOrderStatusSchema } from '@wuchan/validation';
+import {
+  createRfqSchema,
+  createQuoteVersionSchema,
+  createQuoteFromRfqSchema,
+  assignRfqSupplierSchema,
+  updateOrderStatusSchema
+} from '@wuchan/validation';
+import { randomUUID } from 'crypto';
 import { AuditService, AuditModule } from '../../audit/audit.module';
 import { DatabaseService } from '../../database/database.service';
 
@@ -46,6 +56,57 @@ export class RfqController {
       req.user.userId
     );
     return res.rows;
+  }
+
+  @Post(':id/assign-supplier')
+  @RequirePermissions(Permission.RFQ_MANAGE)
+  async assignSupplier(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    if (req.user.activeRole !== 'PLATFORM_ADMIN') {
+      throw new ForbiddenException('Only WUCHAN platform administrators may assign factories to RFQs');
+    }
+
+    const validated = assignRfqSupplierSchema.parse(body);
+    const actorId = req.user.userId;
+
+    return this.db.withTransaction(async (client) => {
+      const rfqRes = await client.query(
+        'SELECT id, organization_id, status FROM public.rfqs WHERE id = $1 FOR UPDATE',
+        [id]
+      );
+      const rfq = rfqRes.rows[0];
+      if (!rfq) throw new NotFoundException('RFQ ' + id + ' not found');
+
+      const supplierRes = await client.query(
+        'SELECT id, type, name FROM public.organizations WHERE id = $1',
+        [validated.supplierOrganizationId]
+      );
+      const supplier = supplierRes.rows[0];
+      if (!supplier) throw new NotFoundException('Supplier organization ' + validated.supplierOrganizationId + ' not found');
+      if (supplier.type !== 'FACTORY') {
+        throw new BadRequestException('RFQ suppliers must be FACTORY organizations');
+      }
+
+      const assignmentRes = await client.query(
+        `INSERT INTO public.rfq_supplier_assignments
+          (rfq_id, customer_organization_id, supplier_organization_id, assigned_by, status)
+         VALUES ($1, $2, $3, $4, 'ACTIVE')
+         ON CONFLICT (rfq_id, supplier_organization_id)
+         DO UPDATE SET status = 'ACTIVE', assigned_by = EXCLUDED.assigned_by
+         RETURNING *`,
+        [rfq.id, rfq.organization_id, supplier.id, actorId]
+      );
+
+      await this.auditService.logActionInTransaction({
+        domain: Domain.RFQ,
+        action: 'RFQ_SUPPLIER_ASSIGNED',
+        actorId,
+        organizationId: rfq.organization_id,
+        resourceId: rfq.id,
+        afterState: { assignment: assignmentRes.rows[0], supplier }
+      }, client);
+
+      return assignmentRes.rows[0];
+    }, actorId);
   }
 
   @Post()
@@ -187,6 +248,94 @@ export class QuotesController {
     return res.rows;
   }
 
+  @Post('from-rfq')
+  @RequirePermissions(Permission.QUOTE_CREATE)
+  async createFromRfq(@Req() req: any, @Body() body: any) {
+    const validated = createQuoteFromRfqSchema.parse(body);
+    const actorId = req.user.userId;
+    const sellerOrgId = req.user.activeOrgId;
+
+    if (!sellerOrgId || !['PLATFORM_ADMIN', 'ORG_OWNER', 'ORG_ADMIN', 'FACTORY_MANAGER'].includes(req.user.activeRole)) {
+      throw new ForbiddenException('A factory organization user is required to issue a quote');
+    }
+
+    return this.db.withTransaction(async (client) => {
+      const existingRes = await client.query(
+        'SELECT id, quote_number FROM public.quotes WHERE rfq_id = $1 AND seller_organization_id = $2 FOR UPDATE',
+        [validated.rfqId, sellerOrgId]
+      );
+      if (existingRes.rows[0]) {
+        throw new ConflictException('This factory has already issued a quote for the RFQ');
+      }
+
+      const rfqRes = await client.query(
+        \`SELECT
+           r.id,
+           r.organization_id AS customer_organization_id
+         FROM public.rfqs r
+         JOIN public.rfq_supplier_assignments rsa ON rsa.rfq_id = r.id
+         JOIN public.organizations supplier ON supplier.id = rsa.supplier_organization_id
+         WHERE r.id = $1
+           AND rsa.supplier_organization_id = $2
+           AND rsa.status = 'ACTIVE'
+           AND supplier.type = 'FACTORY'
+         FOR UPDATE OF r\`,
+        [validated.rfqId, sellerOrgId]
+      );
+      const rfq = rfqRes.rows[0];
+      if (!rfq) throw new ForbiddenException('RFQ is not assigned to the authenticated factory');
+
+      const customerOrgId = rfq.customer_organization_id;
+      const quoteNumber = 'QTE-' + new Date().getUTCFullYear() + '-' + randomUUID().slice(0, 8).toUpperCase();
+
+      const quoteRes = await client.query(
+        \`INSERT INTO public.quotes
+          (quote_number, rfq_id, organization_id, seller_organization_id, current_version, status)
+         VALUES ($1, $2, $3, $4, 1, 'ISSUED')
+         RETURNING *\`,
+        [quoteNumber, rfq.id, customerOrgId, sellerOrgId]
+      );
+      const quote = quoteRes.rows[0];
+
+      const versionRes = await client.query(
+        \`INSERT INTO public.quote_versions
+          (quote_id, version, subtotal_cents, tax_cents, shipping_cents, total_cents, currency, valid_until, notes)
+         VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *\`,
+        [
+          quote.id,
+          validated.subtotal.amountCents,
+          validated.tax.amountCents,
+          validated.shipping.amountCents,
+          validated.total.amountCents,
+          validated.total.currency,
+          validated.validUntil,
+          validated.notes ?? null
+        ]
+      );
+
+      await client.query(
+        'UPDATE public.rfqs SET status = \\'QUOTED\\', updated_at = NOW() WHERE id = $1',
+        [rfq.id]
+      );
+
+      await this.auditService.logActionInTransaction({
+        domain: Domain.QUOTES,
+        action: 'QUOTE_ISSUED',
+        actorId,
+        organizationId: customerOrgId,
+        resourceId: quote.id,
+        afterState: {
+          quote,
+          version: versionRes.rows[0],
+          sellerOrganizationId: sellerOrgId
+        }
+      }, client);
+
+      return { ...quote, currentVersion: versionRes.rows[0] };
+    }, actorId);
+  }
+
   @Post()
   @RequirePermissions(Permission.QUOTE_CREATE)
   async createVersion(@Req() req: any, @Body() body: any) {
@@ -207,7 +356,11 @@ export class QuotesController {
         throw new NotFoundException(`Quote ${validated.quoteId} not found`);
       }
 
-      if (req.user.activeOrgId && quote.organization_id !== req.user.activeOrgId && req.user.activeRole !== 'PLATFORM_ADMIN') {
+      if (
+        req.user.activeRole !== 'PLATFORM_ADMIN' &&
+        quote.organization_id !== req.user.activeOrgId &&
+        quote.seller_organization_id !== req.user.activeOrgId
+      ) {
         throw new ForbiddenException('Quote belongs to a different organization');
       }
 
