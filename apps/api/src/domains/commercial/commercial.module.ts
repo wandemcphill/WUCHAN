@@ -19,7 +19,29 @@ export class RfqController {
   @RequirePermissions(Permission.RFQ_READ)
   async list(@Req() req: any) {
     const res = await this.db.query(
-      'SELECT * FROM public.rfqs ORDER BY created_at DESC',
+      `SELECT
+         r.*,
+         COALESCE(
+           json_agg(
+             json_build_object(
+               'id', ri.id,
+               'productId', ri.product_id,
+               'productSku', p.sku,
+               'quantity', ri.quantity,
+               'configuration', ri.configuration,
+               'notes', ri.notes,
+               'targetUnitPriceCents', ri.target_unit_price_cents,
+               'currency', ri.currency
+             )
+             ORDER BY ri.created_at
+           ) FILTER (WHERE ri.id IS NOT NULL),
+           '[]'::json
+         ) AS items
+       FROM public.rfqs r
+       LEFT JOIN public.rfq_items ri ON ri.rfq_id = r.id
+       LEFT JOIN public.products p ON p.id = ri.product_id
+       GROUP BY r.id
+       ORDER BY r.created_at DESC`,
       [],
       req.user.userId
     );
