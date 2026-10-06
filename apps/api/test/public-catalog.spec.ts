@@ -12,7 +12,7 @@ describe('Public Catalog Visibility Unit Test', () => {
   });
 
   it('filters unauthenticated queries to only public items', async () => {
-    const querySpy = jest.spyOn(dbService, 'query').mockResolvedValue({
+    const querySpy = jest.spyOn(dbService, 'queryPublic').mockResolvedValue({
       rows: [{ id: 'prod_1', name: 'Public Cabin', is_public: true }],
       rowCount: 1
     });
