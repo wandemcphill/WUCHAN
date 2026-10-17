@@ -6,7 +6,8 @@ import {
   resolveSqlRoot,
   shouldApplyMigrations,
 } from '../src/database/apply-migrations';
-import { postgresSsl } from '../src/database/postgres-connection';
+import { migrationBlockedReason, postgresSsl } from '../src/database/postgres-connection';
+import { usesHostedSupabaseAuth } from '../src/database/apply-migrations';
 
 describe('Render Postgres connection', () => {
   it('leaves local and private-network hosts unencrypted', () => {
@@ -17,13 +18,28 @@ describe('Render Postgres connection', () => {
     expect(postgresSsl('not a url')).toBe(false);
   });
 
-  it('enables TLS for external Render hosts and sslmode=require', () => {
+  it('enables TLS for external Render hosts, Supabase, and sslmode=require', () => {
     expect(postgresSsl('postgresql://user:pw@dpg-abc-a.oregon-postgres.render.com/wuchan')).toEqual({
       rejectUnauthorized: false,
     });
     expect(postgresSsl('postgresql://user:pw@dpg-abc-a/wuchan?sslmode=require')).toEqual({
       rejectUnauthorized: false,
     });
+    expect(postgresSsl('postgresql://postgres:pw@db.example.supabase.co:5432/postgres')).toEqual({
+      rejectUnauthorized: false,
+    });
+    expect(postgresSsl('postgresql://postgres.example:pw@aws-1-eu-west-2.pooler.supabase.com:5432/postgres')).toEqual({
+      rejectUnauthorized: false,
+    });
+  });
+
+  it('rejects the Supabase transaction pooler for migrations and keeps hosted auth', () => {
+    const session = 'postgresql://postgres.example:pw@aws-1-eu-west-2.pooler.supabase.com:5432/postgres';
+    const transaction = 'postgresql://postgres.example:pw@aws-1-eu-west-2.pooler.supabase.com:6543/postgres';
+    expect(migrationBlockedReason(session)).toBeNull();
+    expect(migrationBlockedReason(transaction)).toMatch(/6543/);
+    expect(usesHostedSupabaseAuth(session)).toBe(true);
+    expect(usesHostedSupabaseAuth('postgresql://postgres:postgres@127.0.0.1:5432/wuchan')).toBe(false);
   });
 
   it('honors sslmode=disable even on an external Render host', () => {
