@@ -127,9 +127,9 @@ export function LiveCommercialDesk() {
 
   if (!authenticated) {
     return (
-      <div className="rounded-2xl border border-amber-800 bg-amber-950/40 p-6 text-sm text-amber-100 space-y-3">
+      <div className="flex flex-col items-start gap-4 rounded-2xl border border-amber-800 bg-amber-950/40 p-6 text-sm text-amber-100 sm:flex-row sm:items-center sm:justify-between">
         <p>The live commercial desk requires a signed-in factory user. The sample queue on the other quotes screen is not a substitute.</p>
-        <Link href="/login" className="inline-flex rounded-xl bg-blue-600 px-4 py-2 text-white font-semibold">Sign in</Link>
+        <Link href="/login" className="inline-flex shrink-0 items-center justify-center rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white">Sign in</Link>
       </div>
     );
   }
