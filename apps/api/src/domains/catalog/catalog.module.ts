@@ -1,4 +1,5 @@
 import { Module, Controller, Get, Post, Body, UseGuards, Param, Req, ForbiddenException } from '@nestjs/common';
+import { BuildsController } from './builds.controller';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -52,7 +53,7 @@ export class CatalogController {
         [id],
         userId
       );
-      return res.rows[0] || null;
+      return this.withOptions(res.rows[0] || null, userId);
     }
 
     const res = await this.db.queryPublic(
@@ -60,7 +61,19 @@ export class CatalogController {
        FROM public.products WHERE id = $1 AND is_public = TRUE`,
       [id]
     );
-    return res.rows[0] || null;
+    return this.withOptions(res.rows[0] || null, null);
+  }
+
+  private async withOptions(product: Record<string, any> | null, userId: string | null) {
+    if (!product) return null;
+    const sql = `SELECT id, name, option_type, price_delta_cents, lead_time_delta_days, requires_quote, sort_order, swatch_hex
+      FROM public.product_options
+      WHERE product_id = $1
+      ORDER BY option_type, sort_order, name`;
+    const options = userId
+      ? await this.db.query(sql, [product.id], userId)
+      : await this.db.queryPublic(sql, [product.id]);
+    return { ...product, options: options.rows };
   }
 
   @Post('products')
@@ -108,6 +121,6 @@ export class CatalogController {
 
 @Module({
   imports: [AuditModule],
-  controllers: [CatalogController]
+  controllers: [CatalogController, BuildsController]
 })
 export class CatalogModule {}

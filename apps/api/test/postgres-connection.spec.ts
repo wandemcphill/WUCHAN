@@ -46,8 +46,8 @@ describe('migration runner decisions', () => {
     const root = resolveSqlRoot(__dirname);
     const files = listMigrationFiles(path.join(root, 'supabase', 'migrations'));
     expect(files[0]).toBe('00001_initial_schema.sql');
-    expect(files[files.length - 1]).toBe('00010_contract_order_handoff.sql');
-    expect(files).toHaveLength(9);
+    expect(files[files.length - 1]).toBe('00011_customer_builds.sql');
+    expect(files).toHaveLength(10);
 
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'wuchan-sql-'));
     fs.mkdirSync(path.join(temp, 'nested', 'supabase', 'migrations'), { recursive: true });

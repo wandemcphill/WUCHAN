@@ -40,6 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ actionCounts }) => {
     { href: '/merchant/commercial', label: 'Live Commercial Desk', icon: <FileSpreadsheet className="w-5 h-5" /> },
     { href: '/merchant/quotes', label: 'RFQs & Quotes', icon: <FileSpreadsheet className="w-5 h-5" />, badge: actionCounts.rfqs },
     { href: '/merchant/products', label: 'Products & BOM', icon: <Box className="w-5 h-5" /> },
+    { href: '/merchant/builds', label: 'Customer Builds', icon: <Box className="w-5 h-5" /> },
     { href: '/merchant/inventory', label: 'Inventory (10-State)', icon: <Warehouse className="w-5 h-5" />, badge: actionCounts.lowStock },
     { href: '/merchant/production', label: 'Production & QC', icon: <Factory className="w-5 h-5" />, badge: actionCounts.qcFailures },
     { href: '/merchant/orders', label: 'Orders & Financials', icon: <ShoppingBag className="w-5 h-5" />, badge: actionCounts.ordersAtRisk },

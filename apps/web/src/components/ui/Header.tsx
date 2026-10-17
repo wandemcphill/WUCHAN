@@ -52,6 +52,9 @@ export const Header: React.FC = () => {
               <Building2 className="w-3.5 h-3.5" />
               Products
             </Link>
+            <Link href="/build" className="hover:text-blue-400 transition flex items-center gap-1.5 py-2">
+              Build
+            </Link>
             <Link href="/compare" className="hover:text-blue-400 transition flex items-center gap-1.5 py-2">
               Compare
             </Link>
