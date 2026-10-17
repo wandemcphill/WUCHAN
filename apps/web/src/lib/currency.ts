@@ -8,6 +8,16 @@ export const CURRENCY_RATES: Record<Currency, { symbol: string; rateToUsd: numbe
   AUD: { symbol: 'A$', rateToUsd: 1.54, label: 'AUD (A$)' },
 };
 
+/** Display a stored minor-unit amount in its own currency, without FX conversion. */
+export function formatMinorUnits(value: Money): string {
+  const meta = CURRENCY_RATES[value.currency] || CURRENCY_RATES.USD;
+  const cents = BigInt(Math.abs(Math.trunc(value.amountCents)));
+  const whole = (cents / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const fraction = (cents % 100n).toString().padStart(2, '0');
+  const sign = value.amountCents < 0 ? '-' : '';
+  return sign + meta.symbol + whole + '.' + fraction + ' ' + value.currency;
+}
+
 export function formatCurrency(value: Money | number, currency: Currency = 'USD'): string {
   const target = CURRENCY_RATES[currency] || CURRENCY_RATES.USD;
   const source: Money = typeof value === 'number'

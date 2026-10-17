@@ -39,6 +39,9 @@ export class PaymentsController {
     if (typeof body.idempotencyKey !== 'string' || body.idempotencyKey.length < 8 || body.idempotencyKey.length > 255) {
       throw new BadRequestException('A valid idempotencyKey is required for payment submission');
     }
+    if (body.reference !== undefined && (typeof body.reference !== 'string' || body.reference.trim().length < 2 || body.reference.trim().length > 100)) {
+      throw new BadRequestException('Payment reference must be between 2 and 100 characters');
+    }
 
     return this.db.withTransaction(async (client) => {
       const invoiceRes = await client.query(
@@ -96,8 +99,8 @@ export class PaymentsController {
       // to COMPLETED later.
       const paymentRes = await client.query(
         `INSERT INTO public.payments
-          (invoice_id, organization_id, amount_cents, currency, payment_method, idempotency_key, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'PENDING_VERIFICATION')
+          (invoice_id, organization_id, amount_cents, currency, payment_method, idempotency_key, status, external_reference)
+         VALUES ($1, $2, $3, $4, $5, $6, 'PENDING_VERIFICATION', $7)
          RETURNING *`,
         [
           invoice.id,
@@ -105,7 +108,8 @@ export class PaymentsController {
           validatedMoney.amountCents,
           validatedMoney.currency,
           body.paymentMethod || 'BANK_TRANSFER',
-          body.idempotencyKey
+          body.idempotencyKey,
+          typeof body.reference === 'string' ? body.reference.trim() : null
         ]
       );
       const payment = paymentRes.rows[0];
@@ -273,7 +277,7 @@ export class AiController {
   @Get()
   @RequirePermissions(Permission.AI_EXECUTE)
   list() {
-    return [{ id: 'ai_task_1', prompt: 'Summarize quote specifications' }];
+    return [];
   }
 }
 

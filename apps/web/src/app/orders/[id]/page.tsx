@@ -8,6 +8,7 @@ import { WorkspaceProvider, useWorkspace } from '@/lib/context';
 import { StatusBadge } from '@/components/ui/StateCards';
 import { MOCK_ORDERS } from '@/lib/adapters/mockData';
 import { OrderState } from '@wuchan/contracts';
+import { LiveOrderDetail } from '@/features/customer/LiveOrderDetail';
 import {
   PackageCheck,
   Clock,
@@ -44,7 +45,19 @@ export default function OrderDetailPage({ params }: { params: { id: string } }) 
 }
 
 function OrderDetailInner({ orderId }: { orderId: string }) {
-  const { currency } = useWorkspace();
+  useWorkspace();
+
+  if (/^[0-9a-fA-F-]{36}$/.test(orderId)) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+        <Header />
+        <AiAssistantDrawer />
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+          <LiveOrderDetail orderId={orderId} />
+        </main>
+      </div>
+    );
+  }
 
   const order = MOCK_ORDERS.find((o) => o.id === orderId) || MOCK_ORDERS[0];
 

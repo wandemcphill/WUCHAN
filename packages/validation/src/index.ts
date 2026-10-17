@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Currency, OrgType, RoleName, OrderStatus } from '@wuchan/contracts';
+import { CURRENCIES, OrgType, RoleName, OrderStatus } from '@wuchan/contracts';
 
 /** Money Validation Schema - Strict Integer Cents Rule */
 export const moneySchema = z.object({
@@ -7,7 +7,7 @@ export const moneySchema = z.object({
     .number({ required_error: 'Amount in cents is required' })
     .int('Money amount must be an integer (cents/minor units)')
     .nonnegative('Money amount cannot be negative'),
-  currency: z.nativeEnum(Currency, {
+  currency: z.enum(CURRENCIES, {
     errorMap: () => ({ message: 'Invalid currency code' })
   })
 });
@@ -113,8 +113,32 @@ export const approveQuoteSchema = z.object({
 
 export const createContractFromQuoteSchema = z.object({
   quoteId: z.string().uuid('Valid quote ID required'),
-  termsText: z.string().trim().min(100).max(50000)
+  termsText: z.string().trim().min(100).max(50000),
+  depositBps: z.number().int().min(1).max(10000)
 });
+
+/**
+ * Deposit due at contract execution, in minor units.
+ * Basis points are applied to the frozen quote total with integer division
+ * so later catalogue prices cannot change the invoice.
+ */
+export function calculateDepositCents(totalCents: number, depositBps: number): number {
+  if (!Number.isSafeInteger(totalCents) || totalCents < 0) {
+    throw new Error('Order total must be a non-negative integer minor-unit amount');
+  }
+  if (!Number.isSafeInteger(depositBps) || depositBps < 1 || depositBps > 10000) {
+    throw new Error('Deposit basis points must be an integer from 1 to 10000');
+  }
+
+  const deposit = Number((BigInt(totalCents) * BigInt(depositBps)) / 10000n);
+  if (totalCents > 0 && deposit <= 0) {
+    throw new Error('Deposit rounded to zero minor units');
+  }
+  if (deposit > totalCents) {
+    throw new Error('Deposit exceeds the frozen quote total');
+  }
+  return deposit;
+}
 
 export const signContractSchema = z.object({
   acknowledged: z.literal(true, {

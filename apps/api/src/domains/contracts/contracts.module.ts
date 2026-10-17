@@ -6,6 +6,7 @@ import {
   Body,
   UseGuards,
   Param,
+  Query,
   Req,
   ForbiddenException,
   NotFoundException,
@@ -22,6 +23,7 @@ import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { AuditService, AuditModule } from '../../audit/audit.module';
 import { DatabaseService } from '../../database/database.service';
+import { openDepositOrderFromContract } from '../commercial/order-handoff';
 
 @Controller('contracts')
 @UseGuards(AuthGuard, PermissionsGuard)
@@ -33,13 +35,20 @@ export class ContractsController {
 
   @Get()
   @RequirePermissions(Permission.CONTRACT_READ)
-  async list(@Req() req: any) {
+  async list(@Req() req: any, @Query('quoteId') quoteId?: string) {
+    if (quoteId && !/^[0-9a-fA-F-]{36}$/.test(quoteId)) {
+      throw new ForbiddenException('Invalid quote id');
+    }
+
     const res = await this.db.query(
-      \`SELECT c.*, q.quote_number, q.status AS quote_status
+      `SELECT c.*, q.quote_number, q.status AS quote_status,
+              o.id AS order_id, o.order_number, o.status AS order_status
        FROM public.contracts c
        JOIN public.quotes q ON q.id = c.quote_id
-       ORDER BY c.created_at DESC\`,
-      [],
+       LEFT JOIN public.orders o ON o.contract_id = c.id
+       WHERE ($1::uuid IS NULL OR c.quote_id = $1)
+       ORDER BY c.created_at DESC`,
+      [quoteId || null],
       req.user.userId
     );
     return res.rows;
@@ -53,10 +62,10 @@ export class ContractsController {
     }
 
     const res = await this.db.query(
-      \`SELECT c.*, q.quote_number, q.status AS quote_status, q.current_version AS quote_current_version
+      `SELECT c.*, q.quote_number, q.status AS quote_status, q.current_version AS quote_current_version
        FROM public.contracts c
        JOIN public.quotes q ON q.id = c.quote_id
-       WHERE c.id = $1\`,
+       WHERE c.id = $1`,
       [id],
       req.user.userId
     );
@@ -81,7 +90,7 @@ export class ContractsController {
 
     return this.db.withTransaction(async (client) => {
       const quoteRes = await client.query(
-        \`SELECT
+        `SELECT
            q.id,
            q.quote_number,
            q.organization_id AS customer_organization_id,
@@ -91,7 +100,7 @@ export class ContractsController {
          FROM public.quotes q
          LEFT JOIN public.organizations seller ON seller.id = q.seller_organization_id
          WHERE q.id = $1
-         FOR UPDATE\`,
+         FOR UPDATE`,
         [validated.quoteId]
       );
       const quote = quoteRes.rows[0];
@@ -118,16 +127,17 @@ export class ContractsController {
         'CON-' + new Date().getUTCFullYear() + '-' + randomUUID().slice(0, 8).toUpperCase();
 
       const contractRes = await client.query(
-        \`INSERT INTO public.contracts
-          (quote_id, organization_id, seller_organization_id, contract_number, terms_text, status)
-         VALUES ($1, $2, $3, $4, $5, 'PENDING_SIGNATURE')
-         RETURNING *\`,
+        `INSERT INTO public.contracts
+          (quote_id, organization_id, seller_organization_id, contract_number, terms_text, status, deposit_bps)
+         VALUES ($1, $2, $3, $4, $5, 'PENDING_SIGNATURE', $6)
+         RETURNING *`,
         [
           quote.id,
           quote.customer_organization_id,
           quote.seller_organization_id,
           contractNumber,
-          validated.termsText
+          validated.termsText,
+          validated.depositBps
         ]
       );
       const contract = contractRes.rows[0];
@@ -157,11 +167,11 @@ export class ContractsController {
 
     return this.db.withTransaction(async (client) => {
       const res = await client.query(
-        \`SELECT c.*, q.quote_number
+        `SELECT c.*, q.quote_number
          FROM public.contracts c
          JOIN public.quotes q ON q.id = c.quote_id
          WHERE c.id = $1
-         FOR UPDATE\`,
+         FOR UPDATE`,
         [id]
       );
       const contract = res.rows[0];
@@ -178,9 +188,17 @@ export class ContractsController {
         throw new ForbiddenException('Contract is not associated with the authenticated organization');
       }
 
+      if (isCustomerSide && contract.customer_signed_at) {
+        return this.withExecutedOrder(client, contract, actorId);
+      }
+
+      if (isSellerSide && contract.seller_signed_at) {
+        return this.withExecutedOrder(client, contract, actorId);
+      }
+
       if (isCustomerSide && !contract.customer_signed_at) {
         const updatedRes = await client.query(
-          \`UPDATE public.contracts
+          `UPDATE public.contracts
            SET customer_signed_at = NOW(),
                customer_signed_by = $2,
                status = CASE
@@ -196,7 +214,7 @@ export class ContractsController {
                  ELSE signed_by
                END
            WHERE id = $1
-           RETURNING *\`,
+           RETURNING *`,
           [id, actorId]
         );
         const updated = updatedRes.rows[0];
@@ -211,12 +229,12 @@ export class ContractsController {
           afterState: updated
         }, client);
 
-        return updated;
+        return this.withExecutedOrder(client, updated, actorId);
       }
 
       if (isSellerSide && !contract.seller_signed_at) {
         const updatedRes = await client.query(
-          \`UPDATE public.contracts
+          `UPDATE public.contracts
            SET seller_signed_at = NOW(),
                seller_signed_by = $2,
                status = CASE
@@ -232,7 +250,7 @@ export class ContractsController {
                  ELSE signed_by
                END
            WHERE id = $1
-           RETURNING *\`,
+           RETURNING *`,
           [id, actorId]
         );
         const updated = updatedRes.rows[0];
@@ -247,11 +265,24 @@ export class ContractsController {
           afterState: updated
         }, client);
 
-        return updated;
+        return this.withExecutedOrder(client, updated, actorId);
       }
 
       return contract;
     }, actorId);
+  }
+
+  private async withExecutedOrder(client: import('pg').PoolClient, contract: Record<string, any>, actorId: string) {
+    if (contract.status !== 'FULLY_EXECUTED') {
+      return { ...contract, order: null, depositInvoice: null };
+    }
+
+    const opened = await openDepositOrderFromContract(client, this.auditService, contract, actorId);
+    return {
+      ...contract,
+      order: opened.order,
+      depositInvoice: opened.invoice
+    };
   }
 }
 

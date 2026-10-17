@@ -33,9 +33,12 @@ describe('Database Schema & RLS Policies Test Suite', () => {
     expect(sql).toContain('ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;');
     expect(sql).toContain('ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;');
     expect(sql).toContain('CREATE OR REPLACE FUNCTION public.is_org_member');
-    expect(sql).toContain('CREATE POLICY "Organizations select" ON public.organizations FOR SELECT');
-    const authBootstrap = path.join(migrationsDir, '00004_auth_bootstrap.sql');
-    const authBootstrapSql = fs.readFileSync(authBootstrap, 'utf8');
-    expect(authBootstrapSql).toContain('CREATE POLICY "profiles_insert_self"');
+    expect(sql).toContain('CREATE POLICY "organizations_select"');
+    expect(sql).toContain('CREATE POLICY "orders_all"');
+
+    const handoff = fs.readFileSync(path.join(migrationsDir, '00010_contract_order_handoff.sql'), 'utf8');
+    expect(handoff).toContain('uq_orders_contract_id');
+    expect(handoff).toContain('public.can_record_audit');
+    expect(handoff).toContain('seller_organization_id');
   });
 });

@@ -11,6 +11,7 @@ import {
   createQuoteVersionSchema,
   createQuoteFromRfqSchema,
   assignRfqSupplierSchema,
+  approveQuoteSchema,
   updateOrderStatusSchema
 } from '@wuchan/validation';
 import { randomUUID } from 'crypto';
@@ -176,10 +177,10 @@ export class RfqController {
       const rfqNumber = 'RFQ-' + new Date().getUTCFullYear() + '-' + randomUUID().slice(0, 8).toUpperCase();
 
       const rfqRes = await client.query(
-        \`INSERT INTO public.rfqs
+        `INSERT INTO public.rfqs
           (rfq_number, organization_id, project_id, title, description, target_delivery_date, budget_cents, currency, status, destination_port, incoterms_requested)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'SUBMITTED', $9, $10)
-         RETURNING *\`,
+         RETURNING *`,
         [
           rfqNumber,
           validated.organizationId,
@@ -197,9 +198,9 @@ export class RfqController {
 
       for (const item of resolvedItems) {
         await client.query(
-          \`INSERT INTO public.rfq_items
+          `INSERT INTO public.rfq_items
             (rfq_id, product_id, quantity, configuration, notes, target_unit_price_cents, currency)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)\`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
           [
             rfq.id,
             item.productId,
@@ -344,7 +345,7 @@ export class QuotesController {
       }
 
       const rfqRes = await client.query(
-        \`SELECT
+        `SELECT
            r.id,
            r.organization_id AS customer_organization_id
          FROM public.rfqs r
@@ -354,7 +355,7 @@ export class QuotesController {
            AND rsa.supplier_organization_id = $2
            AND rsa.status = 'ACTIVE'
            AND supplier.type = 'FACTORY'
-         FOR UPDATE OF r\`,
+         FOR UPDATE OF r`,
         [validated.rfqId, sellerOrgId]
       );
       const rfq = rfqRes.rows[0];
@@ -364,19 +365,19 @@ export class QuotesController {
       const quoteNumber = 'QTE-' + new Date().getUTCFullYear() + '-' + randomUUID().slice(0, 8).toUpperCase();
 
       const quoteRes = await client.query(
-        \`INSERT INTO public.quotes
+        `INSERT INTO public.quotes
           (quote_number, rfq_id, organization_id, seller_organization_id, current_version, status)
          VALUES ($1, $2, $3, $4, 1, 'ISSUED')
-         RETURNING *\`,
+         RETURNING *`,
         [quoteNumber, rfq.id, customerOrgId, sellerOrgId]
       );
       const quote = quoteRes.rows[0];
 
       const versionRes = await client.query(
-        \`INSERT INTO public.quote_versions
+        `INSERT INTO public.quote_versions
           (quote_id, version, subtotal_cents, tax_cents, shipping_cents, total_cents, currency, valid_until, notes)
          VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING *\`,
+         RETURNING *`,
         [
           quote.id,
           validated.subtotal.amountCents,
@@ -389,10 +390,7 @@ export class QuotesController {
         ]
       );
 
-      await client.query(
-        'UPDATE public.rfqs SET status = \\'QUOTED\\', updated_at = NOW() WHERE id = $1',
-        [rfq.id]
-      );
+      await client.query('SELECT public.mark_rfq_quoted($1)', [rfq.id]);
 
       await this.auditService.logActionInTransaction({
         domain: Domain.QUOTES,
@@ -431,12 +429,15 @@ export class QuotesController {
         throw new NotFoundException(`Quote ${validated.quoteId} not found`);
       }
 
+      if (['ACCEPTED', 'DECLINED', 'EXPIRED', 'SUPERSEDED'].includes(quote.status)) {
+        throw new BadRequestException('Quote cannot be revised from status ' + quote.status);
+      }
+
       if (
         req.user.activeRole !== 'PLATFORM_ADMIN' &&
-        quote.organization_id !== req.user.activeOrgId &&
         quote.seller_organization_id !== req.user.activeOrgId
       ) {
-        throw new ForbiddenException('Quote belongs to a different organization');
+        throw new ForbiddenException('Only the issuing factory may revise this quote');
       }
 
       const latestRes = await client.query(
@@ -575,6 +576,70 @@ export class OrdersController {
     return res.rows;
   }
 
+  @Get(':id')
+  @RequirePermissions(Permission.ORDER_READ)
+  async getById(@Req() req: any, @Param('id') id: string) {
+    if (!/^[0-9a-fA-F-]{36}$/.test(id)) {
+      throw new BadRequestException('Invalid order id');
+    }
+
+    const orderRes = await this.db.query(
+      `SELECT o.*, q.quote_number, c.contract_number
+       FROM public.orders o
+       LEFT JOIN public.quotes q ON q.id = o.quote_id
+       LEFT JOIN public.contracts c ON c.id = o.contract_id
+       WHERE o.id = $1`,
+      [id],
+      req.user.userId
+    );
+    const order = orderRes.rows[0];
+    if (!order) {
+      throw new NotFoundException('Order ' + id + ' not found');
+    }
+
+    const invoicesRes = await this.db.query(
+      `SELECT id, invoice_number, amount_cents, currency, due_date, status, milestone, created_at
+       FROM public.invoices
+       WHERE order_id = $1
+       ORDER BY created_at ASC`,
+      [id],
+      req.user.userId
+    );
+
+    const money = (amountCents: number) => ({
+      amountCents: Number(amountCents),
+      currency: order.currency
+    });
+
+    return {
+      id: order.id,
+      orderNumber: order.order_number,
+      status: order.status,
+      organizationId: order.organization_id,
+      sellerOrganizationId: order.seller_organization_id,
+      quoteId: order.quote_id,
+      quoteNumber: order.quote_number,
+      contractId: order.contract_id,
+      contractNumber: order.contract_number,
+      quoteVersion: order.quote_version,
+      subtotal: money(order.subtotal_cents),
+      tax: money(order.tax_cents),
+      shipping: money(order.shipping_cents),
+      total: money(order.total_amount_cents),
+      deposit: money(order.deposit_cents),
+      createdAt: order.created_at,
+      invoices: invoicesRes.rows.map((invoice: any) => ({
+        id: invoice.id,
+        invoiceNumber: invoice.invoice_number,
+        milestone: invoice.milestone,
+        amount: { amountCents: Number(invoice.amount_cents), currency: invoice.currency },
+        dueDate: invoice.due_date,
+        status: invoice.status,
+        createdAt: invoice.created_at
+      }))
+    };
+  }
+
   @Patch('status')
   @RequirePermissions(Permission.ORDER_STATE_UPDATE)
   async updateStatus(@Req() req: any, @Body() body: any) {
@@ -592,7 +657,9 @@ export class OrdersController {
         throw new NotFoundException(`Order ${validated.orderId} not found`);
       }
 
-      if (req.user.activeOrgId && currentOrder.organization_id !== req.user.activeOrgId && req.user.activeRole !== 'PLATFORM_ADMIN') {
+      const sameCustomer = currentOrder.organization_id === req.user.activeOrgId;
+      const sameSeller = currentOrder.seller_organization_id && currentOrder.seller_organization_id === req.user.activeOrgId;
+      if (req.user.activeRole !== 'PLATFORM_ADMIN' && !sameCustomer && !sameSeller) {
         throw new ForbiddenException('Order belongs to a different organization');
       }
 

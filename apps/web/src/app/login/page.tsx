@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Header } from '@/components/ui/Header';
 import { Building2, ArrowRight, ShieldCheck } from 'lucide-react';
 import { fetchApi } from '@/lib/api-client';
+import { WorkspaceProvider } from '@/lib/context';
 
 function slugify(value: string) {
   return value
@@ -16,6 +17,14 @@ function slugify(value: string) {
 }
 
 export default function Page() {
+  return (
+    <WorkspaceProvider>
+      <LoginScreen />
+    </WorkspaceProvider>
+  );
+}
+
+function LoginScreen() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

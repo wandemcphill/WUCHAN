@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { FileText, Plus, GitCommit, Clock } from 'lucide-react';
+import { Currency } from '@wuchan/contracts';
 import { MerchantAdapter, Quote, formatMoney } from '@wuchan/contracts/merchant';
 
 interface RFQQuoteViewProps {
@@ -21,9 +23,9 @@ export const RFQQuoteView: React.FC<RFQQuoteViewProps> = ({ adapter }) => {
     const latestVer = selectedQuote.versions[selectedQuote.versions.length - 1];
 
     const newSubtotal = latestVer.subtotal;
-    const newDiscount = { amountCents: discountAmount, currency: 'USD' };
+    const newDiscount = { amountCents: discountAmount, currency: Currency.USD };
     const newShipping = latestVer.shipping;
-    const newTotal = { amountCents: newSubtotal.amountCents - newDiscount.amountCents + newShipping.amountCents, currency: 'USD' };
+    const newTotal = { amountCents: newSubtotal.amountCents - newDiscount.amountCents + newShipping.amountCents, currency: Currency.USD };
 
     const updated = adapter.createQuoteVersion(selectedQuote.id, {
       createdBy: 'Sales Director - Sarah',
@@ -77,9 +79,9 @@ export const RFQQuoteView: React.FC<RFQQuoteViewProps> = ({ adapter }) => {
                   <p>Destination: {rfq.destinationPort}, {rfq.destinationCountry}</p>
                   <p>Due Date: {new Date(rfq.dueDate).toLocaleDateString()}</p>
                 </div>
-                <button className="w-full mt-2 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition">
-                  Create Quote Draft
-                </button>
+                <Link href="/merchant/commercial" className="block w-full mt-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold text-xs transition text-center">
+                  Open live commercial desk
+                </Link>
               </div>
             ))}
           </div>

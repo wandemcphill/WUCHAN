@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
-  const { currency, setCurrency, language, setLanguage, setIsAiDrawerOpen, savedConfigIds } = useWorkspace();
+  const { currency, setCurrency, language, setLanguage, setIsAiDrawerOpen, savedConfigIds, isAuthenticated, currentUser } = useWorkspace();
 
   return (
     <header className="sticky top-0 z-40 bg-slate-950/90 backdrop-blur-md border-b border-slate-800 text-slate-200">
@@ -134,6 +134,13 @@ export const Header: React.FC = () => {
               ))}
             </div>
           </div>
+
+          <Link
+            href={isAuthenticated ? '/merchant/commercial' : '/login'}
+            className="hidden sm:inline-flex px-2.5 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs font-semibold text-slate-300 hover:border-slate-700 transition max-w-[140px] truncate"
+          >
+            {isAuthenticated ? currentUser.email : 'Sign in'}
+          </Link>
 
           {/* EN/ZH Language Switcher */}
           <button

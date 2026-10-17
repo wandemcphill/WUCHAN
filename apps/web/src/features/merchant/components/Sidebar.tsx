@@ -37,6 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ actionCounts }) => {
     { href: '/merchant/dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
     { href: '/merchant/profile', label: 'Org & Factory Profile', icon: <Building2 className="w-5 h-5" /> },
     { href: '/merchant/leads', label: 'Leads & Customers', icon: <Users className="w-5 h-5" /> },
+    { href: '/merchant/commercial', label: 'Live Commercial Desk', icon: <FileSpreadsheet className="w-5 h-5" /> },
     { href: '/merchant/quotes', label: 'RFQs & Quotes', icon: <FileSpreadsheet className="w-5 h-5" />, badge: actionCounts.rfqs },
     { href: '/merchant/products', label: 'Products & BOM', icon: <Box className="w-5 h-5" /> },
     { href: '/merchant/inventory', label: 'Inventory (10-State)', icon: <Warehouse className="w-5 h-5" />, badge: actionCounts.lowStock },

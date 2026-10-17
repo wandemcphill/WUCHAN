@@ -7,6 +7,7 @@ import {
   Logger
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { ZodError } from 'zod';
 import { ApiResponse } from '@wuchan/contracts';
 
 @Catch()
@@ -18,8 +19,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    const status =
-      exception instanceof HttpException
+    const zodError = exception instanceof ZodError ? exception : null;
+    const status = zodError
+      ? HttpStatus.BAD_REQUEST
+      : exception instanceof HttpException
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
@@ -30,7 +33,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let message = 'An unexpected internal error occurred.';
     let details: any = null;
 
-    if (status === HttpStatus.UNAUTHORIZED) {
+    if (zodError) {
+      errorCode = 'VALIDATION_ERROR';
+      message = zodError.issues.map((issue) => issue.message).join(', ');
+      details = zodError.issues;
+    } else if (status === HttpStatus.UNAUTHORIZED) {
       errorCode = 'UNAUTHORIZED';
       message = 'Authentication credentials are missing or invalid.';
     } else if (status === HttpStatus.FORBIDDEN) {

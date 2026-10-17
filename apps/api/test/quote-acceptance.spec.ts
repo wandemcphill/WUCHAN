@@ -1,5 +1,5 @@
 import { QuotesController } from '../src/domains/commercial/commercial.module';
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
 describe('Quote customer acceptance boundary', () => {
   it('prevents a supplier from accepting its own quote', async () => {
@@ -58,5 +58,47 @@ describe('Quote customer acceptance boundary', () => {
       ),
     ).rejects.toThrow();
     expect(db.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses to revise a quote after the customer has accepted it', async () => {
+    const client = {
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes('FROM public.quotes')) {
+          return {
+            rows: [{
+              id: '00000000-0000-0000-0000-000000000010',
+              organization_id: '00000000-0000-0000-0000-000000000011',
+              seller_organization_id: '00000000-0000-0000-0000-000000000012',
+              status: 'ACCEPTED',
+              current_version: 1,
+            }],
+            rowCount: 1,
+          };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const db = { withTransaction: jest.fn(async (fn: any) => fn(client)) } as any;
+    const controller = new QuotesController({} as any, db);
+
+    await expect(
+      controller.createVersion(
+        {
+          user: {
+            userId: '00000000-0000-0000-0000-000000000001',
+            activeOrgId: '00000000-0000-0000-0000-000000000012',
+            activeRole: 'FACTORY_MANAGER',
+          },
+        },
+        {
+          quoteId: '00000000-0000-0000-0000-000000000010',
+          validUntil: '2026-12-31T00:00:00.000Z',
+          subtotal: { amountCents: 100, currency: 'USD' },
+          tax: { amountCents: 0, currency: 'USD' },
+          shipping: { amountCents: 0, currency: 'USD' },
+          total: { amountCents: 100, currency: 'USD' },
+        },
+      ),
+    ).rejects.toThrow(BadRequestException);
   });
 });

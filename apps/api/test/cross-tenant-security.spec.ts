@@ -30,7 +30,7 @@ describe('Cross-Tenant Security & Business Boundary Tests', () => {
   it('rejects access when user requests an x-org-id they do not belong to', async () => {
     jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(false);
 
-    jest.spyOn(dbService, 'query').mockResolvedValue({
+    jest.spyOn(dbService, 'querySystem').mockResolvedValue({
       rows: [{ organization_id: 'org_tenant_A', role: 'MEMBER' }],
       rowCount: 1
     });
@@ -78,20 +78,29 @@ describe('Cross-Tenant Security & Business Boundary Tests', () => {
   });
 
   it('atomically resolves parent quote and inserts quote version', async () => {
-    const auditService = { logAction: jest.fn() } as any;
+    const auditService = { logActionInTransaction: jest.fn() } as any;
     const quotesController = new QuotesController(auditService, dbService);
 
     jest.spyOn(dbService, 'withTransaction').mockImplementation(async (fn: any) => {
       const mockClient = {
         query: jest.fn().mockImplementation((sql: string) => {
-          if (sql.includes('SELECT id, current_version')) {
-            return Promise.resolve({ rows: [], rowCount: 0 });
+          if (sql.includes('FROM public.quotes')) {
+            return Promise.resolve({
+              rows: [{
+                id: '00000000-0000-0000-0000-000000000001',
+                current_version: 1,
+                organization_id: 'org_customer',
+                seller_organization_id: 'org_1',
+                status: 'ISSUED'
+              }],
+              rowCount: 1
+            });
           }
-          if (sql.includes('INSERT INTO public.quotes')) {
-            return Promise.resolve({ rows: [{ id: '00000000-0000-0000-0000-000000000001', current_version: 1, organization_id: 'org_1' }], rowCount: 1 });
+          if (sql.includes('MAX(version)')) {
+            return Promise.resolve({ rows: [{ version: 1 }], rowCount: 1 });
           }
           if (sql.includes('INSERT INTO public.quote_versions')) {
-            return Promise.resolve({ rows: [{ id: 'qv_1', quote_id: '00000000-0000-0000-0000-000000000001', version: 1 }], rowCount: 1 });
+            return Promise.resolve({ rows: [{ id: 'qv_2', quote_id: '00000000-0000-0000-0000-000000000001', version: 2 }], rowCount: 1 });
           }
           return Promise.resolve({ rows: [], rowCount: 0 });
         })
@@ -99,10 +108,10 @@ describe('Cross-Tenant Security & Business Boundary Tests', () => {
       return fn(mockClient);
     });
 
-    const req = { user: { userId: '00000000-0000-0000-0000-000000000002', activeOrgId: 'org_1' } };
+    const req = { user: { userId: '00000000-0000-0000-0000-000000000002', activeOrgId: 'org_1', activeRole: 'FACTORY_MANAGER' } };
     const createBody = {
       quoteId: '00000000-0000-0000-0000-000000000001',
-      validUntil: new Date().toISOString(),
+      validUntil: new Date(Date.now() + 86400000).toISOString(),
       subtotal: { amountCents: 10000, currency: 'USD' },
       tax: { amountCents: 0, currency: 'USD' },
       shipping: { amountCents: 0, currency: 'USD' },
@@ -110,8 +119,8 @@ describe('Cross-Tenant Security & Business Boundary Tests', () => {
     };
 
     const res = await quotesController.createVersion(req, createBody);
-    expect(res).toBeDefined();
-    expect(res.version).toBe(1);
+    expect(res.version).toBe(2);
+    expect(auditService.logActionInTransaction).toHaveBeenCalled();
   });
 
   it('prevents overpayment on invoices exceeding outstanding balance', async () => {
@@ -127,6 +136,9 @@ describe('Cross-Tenant Security & Business Boundary Tests', () => {
               rowCount: 1
             });
           }
+          if (sql.includes('idempotency_key')) {
+            return Promise.resolve({ rows: [], rowCount: 0 });
+          }
           if (sql.includes('public.payments')) {
             return Promise.resolve({
               rows: [{ total_paid: '8000' }],
@@ -139,10 +151,11 @@ describe('Cross-Tenant Security & Business Boundary Tests', () => {
       return fn(mockClient);
     });
 
-    const req = { user: { userId: '00000000-0000-0000-0000-000000000002', activeOrgId: 'org_1' } };
+    const req = { user: { userId: '00000000-0000-0000-0000-000000000002', activeOrgId: 'org_1', activeRole: 'CUSTOMER_BUYER' } };
     const overpaymentBody = {
       invoiceId: '00000000-0000-0000-0000-000000000001',
-      amount: { amountCents: 5000, currency: 'USD' }
+      amount: { amountCents: 5000, currency: 'USD' },
+      idempotencyKey: 'wire-overpay-001'
     };
 
     await expect(paymentsController.processPayment(req, overpaymentBody)).rejects.toThrow(BadRequestException);
@@ -152,14 +165,24 @@ describe('Cross-Tenant Security & Business Boundary Tests', () => {
     const auditService = { logAction: jest.fn() } as any;
     const ordersController = new OrdersController(auditService, dbService);
 
-    jest.spyOn(dbService, 'query').mockImplementation((sql: string) => {
-      if (sql.includes('public.orders')) {
-        return Promise.resolve({
-          rows: [{ id: '00000000-0000-0000-0000-000000000001', status: 'DRAFT' }],
-          rowCount: 1
-        });
-      }
-      return Promise.resolve({ rows: [], rowCount: 0 });
+    jest.spyOn(dbService, 'withTransaction').mockImplementation(async (fn: any) => {
+      const mockClient = {
+        query: jest.fn().mockImplementation((sql: string) => {
+          if (sql.includes('FROM public.orders')) {
+            return Promise.resolve({
+              rows: [{
+                id: '00000000-0000-0000-0000-000000000001',
+                organization_id: 'org_1',
+                seller_organization_id: null,
+                status: 'DRAFT'
+              }],
+              rowCount: 1
+            });
+          }
+          return Promise.resolve({ rows: [], rowCount: 0 });
+        })
+      };
+      return fn(mockClient);
     });
 
     const req = { user: { userId: '00000000-0000-0000-0000-000000000002', activeOrgId: 'org_1' } };

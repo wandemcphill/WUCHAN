@@ -93,7 +93,7 @@ export const DICTIONARY = {
 
 export function getTranslation(lang: Language, path: string): string {
   const keys = path.split('.');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-assign, @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let current: any = DICTIONARY[lang] || DICTIONARY.en;
   for (const k of keys) {
     if (current && current[k] !== undefined) {

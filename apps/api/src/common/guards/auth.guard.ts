@@ -25,6 +25,7 @@ const ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
     Permission.RFQ_READ, Permission.QUOTE_READ, Permission.QUOTE_CREATE, Permission.QUOTE_MANAGE,
     Permission.CONTRACT_READ, Permission.CONTRACT_CREATE, Permission.CONTRACT_SIGN, Permission.CONTRACT_MANAGE,
     Permission.ORDER_READ, Permission.ORDER_STATE_UPDATE,
+    Permission.INVOICE_READ,
     Permission.INVENTORY_READ, Permission.INVENTORY_MANAGE, Permission.PRODUCTION_READ, Permission.PRODUCTION_MANAGE,
     Permission.QUALITY_READ, Permission.QUALITY_INSPECT, Permission.SHIPPING_READ, Permission.SHIPPING_MANAGE,
     Permission.DOCUMENTS_READ, Permission.DOCUMENTS_MANAGE, Permission.MESSAGING_READ, Permission.MESSAGING_SEND, Permission.NOTIFICATIONS_READ
@@ -37,11 +38,12 @@ const ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
   ],
   [RoleName.CUSTOMER_BUYER]: [
     Permission.CATALOG_READ, Permission.RFQ_CREATE, Permission.RFQ_READ, Permission.QUOTE_READ,
-    Permission.QUOTE_APPROVE, Permission.ORDER_READ, Permission.PAYMENT_READ, Permission.PAYMENT_PROCESS,
+    Permission.QUOTE_APPROVE, Permission.CONTRACT_READ, Permission.CONTRACT_SIGN,
+    Permission.ORDER_READ, Permission.PAYMENT_READ, Permission.PAYMENT_PROCESS,
     Permission.INVOICE_READ, Permission.DOCUMENTS_READ, Permission.DOCUMENTS_MANAGE, Permission.MESSAGING_READ, Permission.MESSAGING_SEND, Permission.NOTIFICATIONS_READ
   ],
   [RoleName.CUSTOMER_PROJECT_MANAGER]: [
-    Permission.CATALOG_READ, Permission.RFQ_READ, Permission.QUOTE_READ, Permission.ORDER_READ,
+    Permission.CATALOG_READ, Permission.RFQ_READ, Permission.QUOTE_READ, Permission.CONTRACT_READ, Permission.ORDER_READ,
     Permission.DOCUMENTS_READ, Permission.DOCUMENTS_MANAGE, Permission.MESSAGING_READ, Permission.MESSAGING_SEND, Permission.NOTIFICATIONS_READ
   ],
   [RoleName.MEMBER]: [

@@ -1,4 +1,4 @@
-import { moneySchema, createOrganizationSchema } from '../src';
+import { moneySchema, createOrganizationSchema, calculateDepositCents, createContractFromQuoteSchema } from '../src';
 import { Currency, OrgType } from '@wuchan/contracts';
 
 describe('Validation Schemas', () => {
@@ -35,6 +35,21 @@ describe('Validation Schemas', () => {
       };
       const parsed = createOrganizationSchema.safeParse(validOrg);
       expect(parsed.success).toBe(true);
+    });
+
+    it('calculates a deposit from the frozen total in minor units', () => {
+      expect(calculateDepositCents(1000000, 3000)).toBe(300000);
+      expect(calculateDepositCents(10000, 10000)).toBe(10000);
+      expect(calculateDepositCents(10001, 3000)).toBe(3000);
+      expect(() => calculateDepositCents(1, 1)).toThrow(/zero/);
+    });
+
+    it('requires an explicit deposit basis on a contract draft', () => {
+      const parsed = createContractFromQuoteSchema.safeParse({
+        quoteId: '00000000-0000-0000-0000-000000000010',
+        termsText: 'x'.repeat(100),
+      });
+      expect(parsed.success).toBe(false);
     });
 
     it('rejects invalid slug format', () => {

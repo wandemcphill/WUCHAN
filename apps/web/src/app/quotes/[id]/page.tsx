@@ -9,6 +9,7 @@ import { formatCurrency } from '@/lib/currency';
 import { StatusBadge, PermissionDeniedCard } from '@/components/ui/StateCards';
 import { MOCK_QUOTES } from '@/lib/adapters/mockData';
 import { fetchApi } from '@/lib/api-client';
+import { ContractExecutionPanel } from '@/features/customer/ContractExecutionPanel';
 import {
   FileCheck2,
   CheckCircle2,
@@ -233,7 +234,7 @@ function QuoteDetailInner({ quoteId }: { quoteId: string }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {version.lineItems.length > 0 ? version.lineItems.map((item) => (
+                {version.lineItems.length > 0 ? version.lineItems.map((item: any) => (
                   <tr key={item.id} className="hover:bg-slate-950/40">
                     <td className="p-3 space-y-1">
                       <strong className="text-slate-100 block">{item.productName[langKey]}</strong>
@@ -286,6 +287,13 @@ function QuoteDetailInner({ quoteId }: { quoteId: string }) {
           </div>
         )}
 
+        {isAccepted && liveQuote && (
+          <ContractExecutionPanel
+            quoteId={quoteId}
+            canSign={['CUSTOMER_BUYER', 'ORG_OWNER', 'ORG_ADMIN', 'PLATFORM_ADMIN'].includes(currentUser.role)}
+          />
+        )}
+
         {liveError && (
           <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-xs text-red-300">
             {liveError}
@@ -308,7 +316,7 @@ function QuoteDetailInner({ quoteId }: { quoteId: string }) {
                   Approve Commercial Proposal {quote.quoteNumber}
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Accepting this quote generates order record <strong>ORD-2025-9912</strong> and unlocks the deposit invoice.
+                  Acceptance records the customer purchase order against this quote version. It does not open an order.
                 </p>
               </div>
 

@@ -4,6 +4,7 @@ export enum Domain {
   CATALOG = 'catalog',
   RFQ = 'rfq',
   QUOTES = 'quotes',
+  CONTRACTS = 'contracts',
   ORDERS = 'orders',
   PAYMENTS = 'payments',
   INVOICING = 'invoicing',
@@ -150,13 +151,15 @@ export function isValidOrderStatusTransition(currentStatus: OrderStatus, targetS
   return allowed.includes(targetStatus);
 }
 
-export enum Currency {
-  USD = 'USD',
-  EUR = 'EUR',
-  CNY = 'CNY',
-  GBP = 'GBP',
-  AUD = 'AUD'
-}
+export const CURRENCIES = ['USD', 'EUR', 'CNY', 'GBP', 'AUD'] as const;
+export type Currency = (typeof CURRENCIES)[number];
+export const Currency: { [K in Currency]: K } = {
+  USD: 'USD',
+  EUR: 'EUR',
+  CNY: 'CNY',
+  GBP: 'GBP',
+  AUD: 'AUD'
+};
 
 export interface Money {
   /** Amount represented as integer minor units (e.g., $100.00 USD -> 10000) */
