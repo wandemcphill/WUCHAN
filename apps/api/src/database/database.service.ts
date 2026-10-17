@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { Pool, PoolClient, QueryResult as PgQueryResult, QueryResultRow } from 'pg';
+import { poolOptionsFromDatabaseUrl } from './postgres-connection';
 
 export interface QueryResult<T = any> {
   rows: T[];
@@ -20,7 +21,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.pool = new Pool({
-      connectionString: connectionString || 'postgresql://postgres:postgres@localhost:5432/wuchan',
+      ...poolOptionsFromDatabaseUrl(
+        connectionString || 'postgresql://postgres:postgres@localhost:5432/wuchan'
+      ),
       max: 10,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000
