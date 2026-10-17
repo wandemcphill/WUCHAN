@@ -1,0 +1,95 @@
+# Render Blueprint for WUCHAN.
+# Apply this from the branch that contains the monorepo. `main` does not.
+# Do not put secrets in this file. Supabase values are entered in the dashboard.
+
+services:
+  - type: web
+    runtime: node
+    name: wuchan-api
+    plan: 0.5c-512mb
+    healthCheckPath: /catalog/products
+    buildCommand: corepack enable && corepack prepare pnpm@10.18.3 --activate && pnpm install --frozen-lockfile --prod=false && pnpm --filter @wuchan/api... build
+    preDeployCommand: node apps/api/dist/database/apply-migrations.js
+    startCommand: node apps/api/dist/main.js
+    buildFilter:
+      paths:
+        - apps/api/**
+        - packages/**
+        - supabase/**
+        - package.json
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - render.yaml
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wuchan-db
+          property: connectionString
+      - key: DATABASE_RLS_ROLE
+        value: authenticated
+      - key: ALLOW_DEV_AUTH
+        value: "false"
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: SUPABASE_JWT_ISSUER
+        sync: false
+      - key: SUPABASE_JWT_AUDIENCE
+        sync: false
+
+  - type: web
+    runtime: node
+    name: wuchan-web
+    plan: 0.5c-512mb
+    healthCheckPath: /
+    buildCommand: corepack enable && corepack prepare pnpm@10.18.3 --activate && pnpm install --frozen-lockfile --prod=false && pnpm --filter @wuchan/web... build
+    startCommand: pnpm --filter @wuchan/web exec next start -H 0.0.0.0 -p $PORT
+    buildFilter:
+      paths:
+        - apps/web/**
+        - packages/**
+        - package.json
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - render.yaml
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: WUCHAN_API_URL
+        fromService:
+          name: wuchan-api
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+
+  - type: worker
+    runtime: node
+    name: wuchan-worker
+    plan: 0.5c-512mb
+    buildCommand: corepack enable && corepack prepare pnpm@10.18.3 --activate && pnpm install --frozen-lockfile --prod=false && pnpm --filter @wuchan/worker... build
+    startCommand: node apps/worker/dist/index.js
+    buildFilter:
+      paths:
+        - apps/worker/**
+        - packages/**
+        - package.json
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - render.yaml
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wuchan-db
+          property: connectionString
+
+databases:
+  - name: wuchan-db
+    databaseName: wuchan
+    plan: free
+    ipAllowList: []

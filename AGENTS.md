@@ -89,3 +89,12 @@ When shared files must change, keep the change minimal and call it out in the PR
 - Open a PR rather than pushing directly to main after the initial bootstrap.
 - Every PR must state: what changed, affected domains, schema/API changes, permissions, tests, and known limitations.
 - Do not merge merely because the UI renders.
+
+## Cursor Cloud specific instructions
+
+- pnpm 10.18.3 is pinned by `packageManager`. `.cursor/install.sh` puts Node and pnpm on `/usr/local/bin`, runs `pnpm install --frozen-lockfile`, and builds `@wuchan/contracts` and `@wuchan/validation` (both packages export `dist/`).
+- `.cursor/start.sh` starts local PostgreSQL at `postgresql://postgres:postgres@127.0.0.1:5432/wuchan`, creates the Supabase-compatible `auth.uid()` function and `authenticated` role, then applies `supabase/migrations` and `supabase/seed.sql`. Hosted Supabase credentials are not required for this.
+- The Nest API listens on port 3001 with `NODE_ENV=development` and `ALLOW_DEV_AUTH=true`. The Next.js app listens on port 3000 and proxies to `WUCHAN_API_URL=http://127.0.0.1:3001`. Customer sign-in still needs real `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`.
+- Checks used in CI: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`, `pnpm run db:verify`, and `pnpm run build`.
+- `main` does not contain the monorepo yet. Cloud environment builds of this setup must check out a revision that has `package.json` (currently `cursor/finish-commercial-spine-299c` and branches cut from it). Install skips the workspace step when `package.json` is absent.
+- Render hosting is `render.yaml` at the repo root: web services `wuchan-api` and `wuchan-web`, background worker `wuchan-worker`, and Postgres `wuchan-db`. Create the Blueprint from a branch that contains the monorepo. `preDeployCommand` runs `node apps/api/dist/database/apply-migrations.js` (also runs on API boot unless `APPLY_MIGRATIONS=false`). Private-network database hosts stay unencrypted; `*.render.com` hosts use TLS. `ALLOW_DEV_AUTH` is `false`. Customer sign-in still needs the Supabase values prompted by `sync: false`.
