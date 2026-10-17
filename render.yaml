@@ -1,6 +1,9 @@
 # Render Blueprint for WUCHAN.
 # Apply this from the branch that contains the monorepo. `main` does not.
-# Do not put secrets in this file. Supabase values are entered in the dashboard.
+# The database is the Supabase Postgres project. Do not put its password or JWT secret here.
+# DATABASE_URL must be the session pooler URI (host pooler.supabase.com, port 5432).
+# Port 6543 is the transaction pooler and cannot run migrations or SET ROLE.
+# The direct db.<ref>.supabase.co host is IPv6-only.
 
 services:
   - type: web
@@ -24,9 +27,7 @@ services:
       - key: NODE_VERSION
         value: "22"
       - key: DATABASE_URL
-        fromDatabase:
-          name: wuchan-db
-          property: connectionString
+        sync: false
       - key: DATABASE_RLS_ROLE
         value: authenticated
       - key: ALLOW_DEV_AUTH
@@ -34,9 +35,9 @@ services:
       - key: SUPABASE_JWT_SECRET
         sync: false
       - key: SUPABASE_JWT_ISSUER
-        sync: false
+        value: https://etrkejdanhnostitkgij.supabase.co/auth/v1
       - key: SUPABASE_JWT_AUDIENCE
-        sync: false
+        value: authenticated
 
   - type: web
     runtime: node
@@ -62,7 +63,7 @@ services:
           type: web
           envVarKey: RENDER_EXTERNAL_URL
       - key: SUPABASE_URL
-        sync: false
+        value: https://etrkejdanhnostitkgij.supabase.co
       - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
 
@@ -84,12 +85,4 @@ services:
       - key: NODE_VERSION
         value: "22"
       - key: DATABASE_URL
-        fromDatabase:
-          name: wuchan-db
-          property: connectionString
-
-databases:
-  - name: wuchan-db
-    databaseName: wuchan
-    plan: free
-    ipAllowList: []
+        sync: false
