@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { CURRENCIES, OrgType, RoleName, OrderStatus } from '@wuchan/contracts';
 
+export { priceBuild } from './build-price';
+export type { CatalogOptionRow, FrozenSelection, PricedBuild } from './build-price';
+
 /** Money Validation Schema - Strict Integer Cents Rule */
 export const moneySchema = z.object({
   amountCents: z
@@ -39,6 +42,32 @@ export const createProductSchema = z.object({
   isPublic: z.boolean().optional().default(true),
   basePrice: moneySchema,
   leadTimeDays: z.number().int().positive()
+});
+
+export const BUILD_OPTION_TYPES = ['COLOR', 'SIZE', 'LENGTH', 'SPECIFICATION'] as const;
+
+export const createProductOptionSchema = z.object({
+  optionType: z.enum(BUILD_OPTION_TYPES),
+  name: z.string().trim().min(1).max(120),
+  priceDeltaCents: z.number().int().min(-100_000_000).max(100_000_000_00),
+  leadTimeDeltaDays: z.number().int().min(-60).max(365),
+  requiresQuote: z.boolean().optional().default(false),
+  sortOrder: z.number().int().min(0).max(1000).optional().default(0),
+  swatchHex: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional()
+});
+
+export const placeBuildOrderSchema = z.object({
+  organizationId: z.string().uuid(),
+  quantity: z.number().int().min(1).max(100),
+  optionIds: z.array(z.string().uuid()).min(1).max(12),
+  customNote: z.string().trim().max(2000).optional()
+});
+
+export const quoteBuildOrderSchema = z.object({
+  priceCents: z.number().int().nonnegative(),
+  leadTimeDays: z.number().int().positive().max(3650),
+  note: z.string().trim().max(2000).optional(),
+  validUntil: z.string().datetime()
 });
 
 /** RFQ & Quote Validation Schemas */
