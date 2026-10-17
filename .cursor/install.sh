@@ -57,12 +57,11 @@ echo "Using node $(node -v) at $(command -v node) and pnpm $(pnpm -v) at $(comma
 sudo DEBIAN_FRONTEND=noninteractive apt-get update
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql postgresql-contrib tmux
 
-if [ ! -f package.json ]; then
+if [ -f package.json ]; then
+  pnpm install --frozen-lockfile
+  pnpm --filter @wuchan/contracts build
+  pnpm --filter @wuchan/validation build
+  echo "WUCHAN install complete."
+else
   echo "No package.json on this revision; system packages are installed and workspace install was skipped."
-  exit 0
 fi
-
-pnpm install --frozen-lockfile
-pnpm --filter @wuchan/contracts build
-pnpm --filter @wuchan/validation build
-echo "WUCHAN install complete."

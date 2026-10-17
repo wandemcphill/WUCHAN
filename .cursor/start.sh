@@ -93,13 +93,10 @@ fi
 
 if [ ! -f package.json ]; then
   echo "Postgres is ready. No package.json on this revision; application servers were not started."
-  exit 0
-fi
-
-if [ ! -d node_modules ] || [ ! -d packages/contracts/dist ]; then
+elif [ ! -d node_modules ] || [ ! -d packages/contracts/dist ]; then
   echo "Workspace dependencies are missing. Run .cursor/install.sh before start." >&2
   exit 1
-fi
+else
 
 start_session() {
   local name="$1"
@@ -131,3 +128,4 @@ wait_http() {
 wait_http "http://127.0.0.1:3001/catalog/products"
 wait_http "http://127.0.0.1:3000/"
 echo "WUCHAN API on :3001 and web on :3000"
+fi
