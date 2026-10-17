@@ -2,7 +2,11 @@
 # Idempotent Cloud Agent install: Node/pnpm on PATH, workspace deps, local Postgres.
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+if [ -d /workspace ]; then
+  cd /workspace
+else
+  cd "$(dirname "${BASH_SOURCE[0]}")/.."
+fi
 
 NODE_BIN=""
 if [ -d "${HOME}/.nvm/versions/node" ]; then

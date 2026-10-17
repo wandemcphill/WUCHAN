@@ -2,7 +2,11 @@
 # Boot Postgres, apply Supabase SQL on vanilla Postgres, then start API and web.
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+if [ -d /workspace ]; then
+  cd /workspace
+else
+  cd "$(dirname "${BASH_SOURCE[0]}")/.."
+fi
 ROOT="$(pwd)"
 
 export PATH="/usr/local/bin:${PATH}"
