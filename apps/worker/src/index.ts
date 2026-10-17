@@ -21,10 +21,38 @@ export class AuditLogWorker {
   }
 }
 
-async function startWorker() {
+export function shouldKeepWorkerAlive(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.RENDER === 'true';
+}
+
+export function workerPollIntervalMs(env: NodeJS.ProcessEnv = process.env): number {
+  const parsed = Number(env.WORKER_POLL_MS || 15000);
+  if (!Number.isFinite(parsed) || parsed < 1000) return 15000;
+  return parsed;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function startWorker() {
   console.log('[Worker] WUCHAN Async Background Worker Service Started.');
   const outbox = new OutboxProcessor();
-  await outbox.processPendingOutboxEvents();
+  const stayAlive = shouldKeepWorkerAlive();
+  let stopping = false;
+  if (stayAlive) {
+    const stop = () => {
+      stopping = true;
+    };
+    process.once('SIGTERM', stop);
+    process.once('SIGINT', stop);
+  }
+
+  do {
+    await outbox.processPendingOutboxEvents();
+    if (!stayAlive || stopping) break;
+    await sleep(workerPollIntervalMs());
+  } while (!stopping);
 }
 
 if (require.main === module) {
